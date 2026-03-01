@@ -11,17 +11,22 @@ from pathlib import Path
 
 import torch
 
-from constrained_diffusion.constrain_utils import compile_lex_map, preprocessed_generate_stuff
+from constrained_diffusion.constrain_utils import (
+    compile_lex_map, preprocessed_generate_stuff,
+    EOS, autocomplete_valid, partial_output_from_tokens,
+    generated_language, derive_supertokens,
+)
 from constrained_diffusion.eval.dllm.dataset import load_dataset
 from constrained_diffusion.eval.dllm.model import load_model
 from rustformlang.cfg import CFG
-from dgrammar.generate_dgrammar import generate_dgrammar
+from dgrammar.generate_dgrammar import generate_dgrammar, compute_no_lexing_mask
 
 
 def run_benchmark(
     dataset_name: str,
     seed: int = 0,
     limit: int = 1000,
+    offset: int = 0,
     output_file: str = "results/dgrammar.jsonl",
     steps: int = 32,
     max_tokens: int = 256,
@@ -50,8 +55,9 @@ def run_benchmark(
     lang, lex_map, subtokens = None, None, None
     prelex = None
     additional_stuff = None
+    cached_no_lexing_mask = None
 
-    instances = sorted(dataset, key=lambda x: x.instance_id())[:limit]
+    instances = sorted(dataset, key=lambda x: x.instance_id())[offset:offset + limit]
     print(f"Running dGrammar on {len(instances)} {dataset_name} instances, seed={seed}")
 
     for i, instance in enumerate(instances):
@@ -71,6 +77,7 @@ def run_benchmark(
             assert not lang.is_empty(), "Language is empty"
             lex_map = compile_lex_map(lex_map, subtokens=subtokens)
             additional_stuff = None
+            cached_no_lexing_mask = None
             prelex = instance.prelex()
 
         if additional_stuff is None:
@@ -79,6 +86,13 @@ def run_benchmark(
                 trace=trace, prelex=prelex,
                 subtokens=subtokens, strip_chars=instance.strip_chars(),
             )
+        # no_lexing_mask disabled: only blocks ~236/126K tokens (0.19%),
+        # not worth the 7-46s computation cost per grammar instance
+        # if cached_no_lexing_mask is None:
+        #     cached_no_lexing_mask = compute_no_lexing_mask(
+        #         tokenizer, lex_map, model,
+        #         strip_chars=instance.strip_chars(), prelex=prelex,
+        #     )
 
         # Prepare prompt
         prompt_ids, prompt_len, suffix, start_line, prompt_raw = (
@@ -112,6 +126,7 @@ def run_benchmark(
             constrain=True,
             max_batch_size=max_batch_size,
             max_remask_attempts=max_remask_attempts,
+            no_lexing_mask=cached_no_lexing_mask,
         ):
             total_violations = violations
             total_remasks = remasks
@@ -130,6 +145,54 @@ def run_benchmark(
 
         extracted = instance.extract_result(suffix + start_line + code)
 
+        # Autocompletion: if output is not valid, sample from grammar intersection
+        autocompletion_raw = None
+        autocompletion = None
+        time_taken_autocompletion = None
+        supertokens_map = derive_supertokens(subtokens) if subtokens else {}
+
+        if out is not None and not valid:
+            ac_start = time.monotonic()
+            mask_id = 126336
+            mask_decoded = tokenizer.decode(mask_id)
+            eos_token = tokenizer.special_tokens_map["eos_token"]
+            generated_words = tokenizer.batch_decode(out.squeeze())
+            generated_words = [
+                None if x == mask_decoded
+                else EOS if x in (eos_token, "<|eot_id|>", "<|endoftext|>")
+                else x
+                for x in generated_words[prompt_len:]
+            ]
+            partial_output, first_token_gap, last_token_eos_adj = (
+                partial_output_from_tokens(generated_words, prelex)
+            )
+            valid_completion = autocomplete_valid(
+                partial_output=partial_output,
+                first_token_gap=first_token_gap,
+                last_token_eos_adj=last_token_eos_adj,
+                generated_lang=generated_language(
+                    generated_words,
+                    lex_map, lang.get_terminals(),
+                    trace=trace, prelex=prelex,
+                    subtokens=subtokens,
+                    supertokens=supertokens_map,
+                    strip_chars=instance.strip_chars(),
+                ),
+                subtokens=subtokens,
+                lex_map=orig_lex_map,
+                constraint_lang=lang,
+                trace=trace,
+            )
+            time_taken_autocompletion = time.monotonic() - ac_start
+            if valid_completion is not None:
+                autocompletion_raw = valid_completion
+                autocompletion = instance.extract_result(
+                    suffix + valid_completion
+                )
+            if trace:
+                print(f"  Autocompletion: {valid_completion is not None}, "
+                      f"time={time_taken_autocompletion:.1f}s")
+
         result = {
             "dataset": dataset_name,
             "instance_id": instance.instance_id(),
@@ -144,9 +207,9 @@ def run_benchmark(
             "seed": seed,
             "timed_out": False,
             "resamples": resamples_list,
-            "autocompletion_raw": None,
-            "autocompletion": None,
-            "time_taken_autocompletion": None,
+            "autocompletion_raw": autocompletion_raw,
+            "autocompletion": autocompletion,
+            "time_taken_autocompletion": time_taken_autocompletion,
             "temp": temperature,
             "max_tokens": max_tokens,
             "time_taken": elapsed,
@@ -158,6 +221,7 @@ def run_benchmark(
             },
         }
 
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, "a") as f:
             print(json.dumps(result), flush=True, file=f)
 
@@ -172,13 +236,21 @@ def main():
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     limit = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
     dataset = sys.argv[3] if len(sys.argv) > 3 else "jsonschema"
+    steps = int(sys.argv[4]) if len(sys.argv) > 4 else 32
+    offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+    tag = sys.argv[6] if len(sys.argv) > 6 else ""
 
     ds_safe = dataset.replace("/", "_")
+    suffix = f"_off{offset}" if offset > 0 else ""
+    if tag:
+        suffix += f"_{tag}"
     run_benchmark(
         dataset_name=dataset,
         seed=seed,
         limit=limit,
-        output_file=f"results/dgrammar_{ds_safe}_s{seed}.jsonl",
+        offset=offset,
+        steps=steps,
+        output_file=f"results/dgrammar_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl",
     )
 
 

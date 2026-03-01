@@ -16,10 +16,12 @@ def eval_jsonschema(input_file: str, output_file: str):
     from eval.dllm.jsonmode.checker import check_instance
 
     results = []
+    ac_results = []
     with open(input_file) as f:
         lines = f.readlines()
 
-    with open(output_file, "w") as out:
+    ac_output_file = output_file.replace(".compiled.", ".autocompleted.compiled.")
+    with open(output_file, "w") as out, open(ac_output_file, "w") as ac_out:
         for line in lines:
             d = json.loads(line)
             try:
@@ -29,6 +31,22 @@ def eval_jsonschema(input_file: str, output_file: str):
                 result["resamples"] = d.get("resamples")
                 results.append(result)
                 out.write(json.dumps(result) + "\n")
+
+                # Autocompleted version: use autocompletion if available and original failed syntax
+                if d.get("autocompletion") and not result.get("syntax_ok", False):
+                    ac_d = dict(d)
+                    ac_d["extracted"] = d["autocompletion"]
+                    ac_result = check_instance(ac_d, timeout=40)
+                    ac_result["time_taken"] = d.get("time_taken")
+                    ac_result["time_taken_autocompletion"] = d.get("time_taken_autocompletion")
+                    ac_result["skipped"] = False
+                    ac_results.append(ac_result)
+                    ac_out.write(json.dumps(ac_result) + "\n")
+                else:
+                    ac_entry = dict(result)
+                    ac_entry["skipped"] = True
+                    ac_results.append(ac_entry)
+                    ac_out.write(json.dumps(ac_entry) + "\n")
             except Exception as e:
                 print(f"  Error checking {d['instance_id']}: {e}")
 
@@ -40,7 +58,18 @@ def eval_jsonschema(input_file: str, output_file: str):
 
     print(f"  JSON: {n} instances, syntax_ok={syntax_ok}/{n} ({syntax_ok/max(n,1)*100:.1f}%), "
           f"passed={passed}/{n} ({passed/max(n,1)*100:.1f}%), avg_time={avg_time:.1f}s")
-    return {"n": n, "syntax_ok": syntax_ok, "passed": passed, "avg_time": avg_time}
+
+    # Autocompleted summary
+    ac_n = len(ac_results)
+    ac_syntax = sum(1 for r in ac_results if r.get("syntax_ok", False))
+    ac_passed = sum(1 for r in ac_results if r.get("passed_tests", False))
+    ac_skipped = sum(1 for r in ac_results if r.get("skipped", False))
+    print(f"  JSON+AC: {ac_n} instances, syntax_ok={ac_syntax}/{ac_n} ({ac_syntax/max(ac_n,1)*100:.1f}%), "
+          f"passed={ac_passed}/{ac_n} ({ac_passed/max(ac_n,1)*100:.1f}%), "
+          f"skipped={ac_skipped} (already valid)")
+
+    return {"n": n, "syntax_ok": syntax_ok, "passed": passed, "avg_time": avg_time,
+            "ac_syntax_ok": ac_syntax, "ac_passed": ac_passed}
 
 
 def eval_cpp(input_file: str, output_file: str):

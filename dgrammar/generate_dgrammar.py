@@ -27,10 +27,39 @@ from constrained_diffusion.constrain_utils import (
     EOSType,
     generated_language,
     preprocessed_generate_stuff,
+    all_lexings_mask,
     CompiledLexMap,
     LexMap,
 )
 from rustformlang.cfg import CFG, is_intersection_empty_threaded
+
+
+def compute_no_lexing_mask(tokenizer, lex_map, model, strip_chars=None, prelex=None, trace=False):
+    """Compute context-independent mask of tokens with no valid grammar lexing."""
+    vocab_size = tokenizer.vocab_size + len(tokenizer.added_tokens_decoder)
+    all_tokens_decoded = tokenizer.batch_decode(torch.arange(0, vocab_size))
+    _, no_lexing_arr = all_lexings_mask(
+        all_tokens_decoded, lex_map, trace=trace,
+        strip_chars=strip_chars, prelex=prelex,
+    )
+    # Whitelist EOS/EOT tokens
+    eos_token = tokenizer.special_tokens_map.get("eos_token", "")
+    for tok_id, tok_obj in tokenizer.added_tokens_decoder.items():
+        if tok_obj.content in (
+            eos_token, "<|eot_id|>", "<|endoftext|>",
+            "<\uff5cend\u2581of\u2581sentence\uff5c>",
+        ):
+            no_lexing_arr[tok_id] = 0
+    mask = torch.tensor(no_lexing_arr > 0.5, dtype=torch.bool, device=model.device)
+    # Pad to match model logit dimension
+    logit_vocab_size = model.config.vocab_size if hasattr(model, 'config') else vocab_size
+    if mask.shape[0] < logit_vocab_size:
+        pad = torch.ones(logit_vocab_size - mask.shape[0], dtype=torch.bool, device=model.device)
+        mask = torch.cat([mask, pad])
+    if trace:
+        n = mask.sum().item()
+        print(f"Pre-filter: blocking {n}/{logit_vocab_size} tokens ({n/logit_vocab_size*100:.1f}%)")
+    return mask
 
 
 def add_gumbel_noise(logits, temperature):
@@ -55,6 +84,47 @@ def get_num_transfer_tokens(mask_index, steps):
     for i in range(mask_num.size(0)):
         num_transfer_tokens[i, : remainder[i]] += 1
     return num_transfer_tokens
+
+
+def check_local_valid(
+    generated_words,
+    pos,
+    constraint_lang,
+    lex_map,
+    terminals,
+    prelex=None,
+    subtokens=frozendict.frozendict(),
+    supertokens=frozendict.frozendict(),
+    strip_chars=None,
+    window=5,
+):
+    """Check validity using only a local window around position pos.
+
+    Instead of building a DFA for the full sequence, we use a window of
+    tokens around the target position. Tokens outside the window are
+    replaced with None (gaps), which the DFA treats as wildcards.
+    This is much cheaper than full-sequence checking while still
+    capturing local grammar constraints.
+    """
+    start = max(0, pos - window)
+    end = min(len(generated_words), pos + window + 1)
+    # Build local view: gaps outside window
+    local_words = [None] * len(generated_words)
+    for i in range(start, end):
+        local_words[i] = generated_words[i]
+    local_lang = generated_language(
+        local_words,
+        lex_map,
+        terminals,
+        trace=False,
+        prelex=prelex,
+        subtokens=subtokens,
+        supertokens=supertokens,
+        strip_chars=strip_chars,
+    )
+    return is_intersection_empty_threaded(
+        constraint_lang, local_lang, timeout=100
+    )
 
 
 def check_valid(
@@ -109,6 +179,7 @@ def generate_dgrammar(
     max_batch_size=8,
     max_remask_attempts=3,
     max_resamples=100,
+    no_lexing_mask=None,
 ):
     """dGrammar adaptive batch generation with selective remasking.
 
@@ -132,7 +203,7 @@ def generate_dgrammar(
     elif additional_stuff is None:
         additional_stuff = None, None, {}
 
-    all_possible_lexings, no_lexing_tokens, supertokens_map = additional_stuff
+    all_possible_lexings, _no_lexing, supertokens_map = additional_stuff
     resamples = []
 
     if constrain:
@@ -177,6 +248,14 @@ def generate_dgrammar(
 
             # One forward pass per diffusion step
             logits = model(x).logits
+
+            # Pre-filter: mask out tokens with no valid grammar lexing
+            if no_lexing_mask is not None:
+                logits[:, :, no_lexing_mask] = -np.inf
+
+            # TODO: context-dependent masking would go here
+            # For each position, compute valid tokens based on left/right context
+
             logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
 
             n_scheduled = num_transfer_tokens[0, i].item()
@@ -274,7 +353,9 @@ def generate_dgrammar(
                                 return
 
                             # Retry next-best tokens at this position
-                            # (like ETH's while loop, bounded by max_resamples)
+                            # Use local window check for fast rejection,
+                            # confirm with full check on local pass
+                            rel_pos = pos - prompt_len
                             while len(resamples) < max_resamples:
                                 next_vocab_idx = torch.argmax(logits_with_noise[0, pos]).item()
                                 if logits_with_noise[0, pos, next_vocab_idx] == -np.inf:
@@ -287,6 +368,26 @@ def generate_dgrammar(
                                 generated_words[pos] = word
                                 x[0, pos] = next_vocab_idx
 
+                                # Fast local check first
+                                total_grammar_checks += 1
+                                local_empty = check_local_valid(
+                                    generated_words[prompt_len:],
+                                    rel_pos,
+                                    constraint_lang, lex_map, terminals,
+                                    prelex=prelex,
+                                    subtokens=subtokens, supertokens=supertokens_map,
+                                    strip_chars=strip_chars,
+                                )
+                                if local_empty:
+                                    # Locally invalid, reject immediately
+                                    logits_with_noise[0, pos, next_vocab_idx] = -np.inf
+                                    x[0, pos] = mask_id
+                                    generated_words[pos] = None
+                                    total_remasks += 1
+                                    resamples.append((pos, time.monotonic() - start_time))
+                                    continue
+
+                                # Local check passed, confirm with full check
                                 total_grammar_checks += 1
                                 still_empty = check_valid(
                                     generated_words[prompt_len:],
