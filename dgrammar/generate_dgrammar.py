@@ -180,6 +180,8 @@ def generate_dgrammar(
     max_remask_attempts=3,
     max_resamples=100,
     no_lexing_mask=None,
+    template_ids=None,
+    type_masker=None,
 ):
     """dGrammar adaptive batch generation with selective remasking.
 
@@ -215,6 +217,14 @@ def generate_dgrammar(
         (1, prompt.shape[1] + gen_length), mask_id, dtype=torch.long
     ).to(model.device)
     x[:, : prompt.shape[1]] = prompt.clone()
+
+    # Template presetting: pre-fill structural tokens in the generation area
+    if template_ids is not None:
+        t = torch.tensor(template_ids[:gen_length], dtype=torch.long, device=model.device)
+        x[0, prompt.shape[1]:prompt.shape[1] + len(t)] = t
+        if trace:
+            n_filled = sum(1 for tid in template_ids[:gen_length] if tid != mask_id)
+            print(f"  Template: {n_filled}/{gen_length} positions pre-filled")
 
     assert gen_length % block_length == 0
     num_blocks = gen_length // block_length
@@ -253,10 +263,16 @@ def generate_dgrammar(
             if no_lexing_mask is not None:
                 logits[:, :, no_lexing_mask] = -np.inf
 
-            # TODO: context-dependent masking would go here
-            # For each position, compute valid tokens based on left/right context
-
             logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
+
+            # Type-aware masking: block tokens that don't match expected JSON type
+            if type_masker is not None:
+                n_type_masked = type_masker.apply_masks(
+                    logits_with_noise, generated_words, prompt_len,
+                    mask_id, block_start, block_end,
+                )
+                if trace and n_type_masked > 0:
+                    print(f"  Type-masked {n_type_masked} positions")
 
             n_scheduled = num_transfer_tokens[0, i].item()
             if n_scheduled == 0:
