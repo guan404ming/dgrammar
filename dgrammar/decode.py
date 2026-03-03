@@ -1,4 +1,4 @@
-"""Main decode loop for dGrammar.
+"""Main decode loop for Dgrammar.
 
 Implements the four-step decode loop:
 1. Initialize: x = [MASK] * L
@@ -19,7 +19,7 @@ from dgrammar._core import GrammarChecker, MASK_TOKEN
 
 @dataclass
 class DecodeConfig:
-    """Configuration for the dGrammar decode loop."""
+    """Configuration for the Dgrammar decode loop."""
     # Length of the output sequence (number of tokens to generate)
     output_length: int = 64
     # Total denoising steps (iterations over the sequence)
@@ -67,7 +67,7 @@ def decode(
     token_mapper: TokenMapper = identity_mapper,
     device: str = "cuda",
 ) -> tuple[str, DecodeStats]:
-    """Run the dGrammar decode loop.
+    """Run the Dgrammar decode loop.
 
     Args:
         model: A diffusion LLM (Dream/LLaDA) with a forward method that

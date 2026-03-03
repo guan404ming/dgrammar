@@ -1,8 +1,8 @@
-# dGrammar: Research & Implementation Plan
+# Dgrammar: Research & Implementation Plan
 
 ## 1. One-sentence Contribution
 
-dGrammar 是第一個在 grammar-constrained decoding 中保留 dLLM parallel decoding 能力的方法，
+Dgrammar 是第一個在 grammar-constrained decoding 中保留 dLLM parallel decoding 能力的方法，
 透過 selective remasking（而非 rejection sampling）將 grammar violations 轉化為 refinement targets。
 
 ---
@@ -13,7 +13,7 @@ dGrammar 是第一個在 grammar-constrained decoding 中保留 dLLM parallel de
 |---|---|---|---|
 | Mündler et al. | 1 | reject + resample | 退化成 sequential；走到死胡同 |
 | LAVE | 1 | lookahead + verify | 退化成 sequential；lookahead 有 approximation error |
-| **dGrammar** | **K (4-8)** | **parse + selective remask** | **保留 parallel advantage** |
+| **Dgrammar** | **K (4-8)** | **parse + selective remask** | **保留 parallel advantage** |
 
 核心 insight：LAVE 和 Mündler 都把 grammar constraint 變成了 accept/reject 問題，
 但 dLLM 天生就有 iterative refinement 能力 — grammar violation 應該觸發 refinement，不是 rejection。
@@ -193,7 +193,7 @@ Earley parser 作為 general-purpose fallback。**
 | No-CD | ~77% | ~60% | 1.0× |
 | Mündler (FS-CD) | ~85% | ~80% | 0.3-0.5× (很慢) |
 | LAVE | ~97% | ~95% | 0.5-0.7× (per-token overhead) |
-| **dGrammar** | **~93-97%** | **~92-96%** | **0.7-0.9×** |
+| **Dgrammar** | **~93-97%** | **~92-96%** | **0.7-0.9×** |
 
 **核心 claim:**
 - syntactic correctness 接近 LAVE（可能略低，因為 parallel unmask 的 approximation）
@@ -236,7 +236,7 @@ Earley parser 作為 general-purpose fallback。**
    - dLLM 的 parallel advantage
    - Constrained decoding 的需求
    - 現有方法的 per-token bottleneck
-   - dGrammar: detect-and-repair paradigm
+   - Dgrammar: detect-and-repair paradigm
 
 2. Background
    - Masked diffusion LLMs (LLaDA, Dream)
@@ -245,7 +245,7 @@ Earley parser 作為 general-purpose fallback。**
 
 3. Method
    - 3.1 Problem formulation
-   - 3.2 dGrammar decode loop (Algorithm 1)
+   - 3.2 Dgrammar decode loop (Algorithm 1)
    - 3.3 Violation detection strategies
    - 3.4 Convergence analysis (informal)
    - 3.5 Complexity analysis (vs LAVE, Mündler)
@@ -254,7 +254,7 @@ Earley parser 作為 general-purpose fallback。**
    - 4.1 Setup (models, benchmarks, baselines)
    - 4.2 Main results (Table 1: syntactic@k, Table 2: throughput)
    - 4.3 Ablation studies
-   - 4.4 Case study: when does dGrammar fail?
+   - 4.4 Case study: when does Dgrammar fail?
 
 5. Related Work
    - Constrained decoding for AR LLMs

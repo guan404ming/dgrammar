@@ -1,4 +1,4 @@
-"""AdaGram v2: adaptive batch generation with token-level grammar checking.
+"""Dgrammar v2: adaptive batch generation with token-level grammar checking.
 
 Uses llguidance for incremental left-to-right token validation.
 Key difference from v1: checker operates on token IDs directly (not character-level DFA).
@@ -91,7 +91,7 @@ def generate_v2(
     max_batch_size=8,
     max_resamples=100,
 ):
-    """AdaGram v2 with incremental token-level grammar checking."""
+    """Dgrammar v2 with incremental token-level grammar checking."""
     start_time = time.monotonic()
 
     x = torch.full(

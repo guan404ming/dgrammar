@@ -1,10 +1,10 @@
 """End-to-end test with LLaDA-8B-Instruct (cached model).
 
-Tests the full dGrammar pipeline with a real diffusion LLM:
+Tests the full Dgrammar pipeline with a real diffusion LLM:
 1. Load LLaDA from HuggingFace cache
-2. Run dGrammar decode with JSON grammar
+2. Run Dgrammar decode with JSON grammar
 3. Verify output validity
-4. Compare dGrammar vs No-CD vs FS-CD (Mundler/ETH) vs LAVE baselines
+4. Compare Dgrammar vs No-CD vs FS-CD (Mundler/ETH) vs LAVE baselines
 
 Metrics align with LAVE paper (arxiv:2602.00612) and ETH paper (arxiv:2508.10111):
 - syntactic@1: fraction of outputs that are syntactically valid
@@ -88,7 +88,7 @@ class TestLLaDAE2E:
         print(f"\nForward pass OK: logits shape = {output.logits.shape}")
 
     def test_dgrammar_json_generation(self, model_and_tokenizer):
-        """Test dGrammar decode on JSON generation."""
+        """Test Dgrammar decode on JSON generation."""
         from dgrammar.decode import DecodeConfig, decode
         from dgrammar.validators import StringLevelChecker, JsonValidator
 
@@ -111,7 +111,7 @@ class TestLLaDAE2E:
         )
         elapsed = time.time() - start
 
-        print(f"\n--- dGrammar JSON Test ---")
+        print(f"\n--- Dgrammar JSON Test ---")
         print(f"Output: {output}")
         print(f"Steps: {stats.total_steps}, Violations: {stats.total_violations}")
         print(f"Remasks: {stats.total_remasks}, Fallback: {stats.degraded_to_fallback}")
@@ -252,8 +252,8 @@ def run_comparison():
     print(f"  Output: {out}")
     print(f"  Valid: {valid}, Time: {t1-t0:.2f}s, Steps: {stats.total_steps}")
 
-    # dGrammar
-    print("\n=== dGrammar (ours) ===")
+    # Dgrammar
+    print("\n=== Dgrammar (ours) ===")
     dc = DecodeConfig(
         output_length=32, total_steps=32,
         max_unmask_per_step=4, confidence_threshold=0.3,
@@ -263,7 +263,7 @@ def run_comparison():
     out, stats = decode(model, tokenizer, prompt, checker, dc, device="cuda")
     t1 = time.time()
     valid = _is_json(out)
-    results["dGrammar"] = {
+    results["Dgrammar"] = {
         "valid": valid, "time": t1 - t0, "steps": stats.total_steps,
         "violations": stats.total_violations, "remasks": stats.total_remasks,
         "fallback": stats.degraded_to_fallback,

@@ -1,4 +1,4 @@
-"""Evaluate dGrammar results using ETH's checkers and produce comparison table.
+"""Evaluate Dgrammar results using ETH's checkers and produce comparison table.
 
 Run after run_dgrammar_eval.py has finished generating results.
 Uses the same evaluation infrastructure as the ETH paper for fair comparison.

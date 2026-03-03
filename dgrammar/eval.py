@@ -1,4 +1,4 @@
-"""Evaluation harness for dGrammar experiments.
+"""Evaluation harness for Dgrammar experiments.
 
 Computes syntactic@k, throughput, and other metrics.
 """

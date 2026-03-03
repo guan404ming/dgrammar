@@ -1,4 +1,4 @@
-"""Run AdaGram v2 async overlap (llguidance) with timing on Modal A100."""
+"""Run Dgrammar v2 async overlap (llguidance) with timing on Modal A100."""
 
 import modal
 
@@ -95,7 +95,7 @@ def main(
 ):
     chunk_size = (total + chunks - 1) // chunks
     mode = "block_ar=32" if block_ar else "full_parallel=256"
-    print(f"Running AdaGram v2 async timed on {chunks}x A100: jsonschema, seed={seed}, T={steps}, {mode}")
+    print(f"Running Dgrammar v2 async timed on {chunks}x A100: jsonschema, seed={seed}, T={steps}, {mode}")
     print(f"Total={total}, chunk_size={chunk_size}")
 
     handles = []

@@ -1,4 +1,4 @@
-"""End-to-end tests for the dGrammar decode loop using a mock dLLM.
+"""End-to-end tests for the Dgrammar decode loop using a mock dLLM.
 
 The mock model simulates a diffusion LLM that predicts tokens for masked
 positions based on a predefined target sequence. This lets us test the full
@@ -131,7 +131,7 @@ def tok_id(tokenizer, word):
 # --- E2E Tests ---
 
 class TestDecodeE2E:
-    """Test the full dGrammar decode loop."""
+    """Test the full Dgrammar decode loop."""
 
     def test_correct_prediction_no_violations(self):
         """When model predicts all correct tokens, no remasking needed."""
@@ -221,7 +221,7 @@ class TestDecodeE2E:
         assert stats.total_violations > 0
 
     def test_json_grammar_decode(self):
-        """Test dGrammar with a JSON-like grammar."""
+        """Test Dgrammar with a JSON-like grammar."""
         tokenizer = make_tokenizer()
         # Target: { key1 : val1 }
         target_words = ["{", "key1", ":", "val1", "}"]

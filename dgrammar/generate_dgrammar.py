@@ -1,8 +1,8 @@
-"""dGrammar generation using ETH's token-level grammar infrastructure.
+"""Dgrammar generation using ETH's token-level grammar infrastructure.
 
 Key difference from ETH's IG-CD:
 - IG-CD: unmask 1 token at a time, reject if invalid, try next best
-- dGrammar: adaptive batch unmasking with selective remasking
+- Dgrammar: adaptive batch unmasking with selective remasking
   - Start with batch=1 (safe, like IG-CD)
   - If valid, double batch size (up to max)
   - If violation detected, selectively remask violators and reset batch to 1
@@ -175,7 +175,7 @@ def generate_dgrammar(
     strip_chars=None,
     additional_stuff=None,
     constrain=True,
-    # dGrammar-specific parameters
+    # Dgrammar-specific parameters
     max_batch_size=8,
     max_remask_attempts=3,
     max_resamples=100,
@@ -184,7 +184,7 @@ def generate_dgrammar(
     token_mask_table=None,
     soft_bias=None,
 ):
-    """dGrammar adaptive batch generation with selective remasking.
+    """Dgrammar adaptive batch generation with selective remasking.
 
     Processes ALL scheduled tokens per diffusion step (like ETH's IG-CD).
     The adaptive batch size controls how many tokens are placed before

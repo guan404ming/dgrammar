@@ -1,4 +1,4 @@
-"""Run AdaGram v2 (llguidance) with async overlap: compute_mask runs in parallel with forward pass."""
+"""Run Dgrammar v2 (llguidance) with async overlap: compute_mask runs in parallel with forward pass."""
 
 import json
 import time
@@ -364,12 +364,10 @@ def generate_v2_async_timed(
                         next_vocab = torch.argmax(logits_with_noise[0, violator]).item()
                         if logits_with_noise[0, violator, next_vocab] == -np.inf:
                             break
-
                         t_gc_retry = time.perf_counter()
                         total_grammar_checks += 1
                         c = checker.matcher.try_consume_tokens([next_vocab])
                         STATS.grammar_check_times.append(time.perf_counter() - t_gc_retry)
-
                         if c == 1:
                             x[0, violator] = next_vocab
                             consume_idx += 1
@@ -385,12 +383,10 @@ def generate_v2_async_timed(
                             else:
                                 consume_idx = further_idx
                             break
-
                         logits_with_noise[0, violator, next_vocab] = -np.inf
                         total_remasks += 1
                         STATS.resample_count += 1
                         resamples.append((violator, time.monotonic() - start_time))
-
                     current_batch = 1
 
                 # Check completion
@@ -450,7 +446,7 @@ def main():
     all_instances = sorted(dataset, key=lambda x: x.instance_id())
     instances = all_instances[offset:offset + limit]
     bl = 32 if block_ar else 256
-    print(f"AdaGram v2 async timed: {len(instances)} instances, seed={seed}, T={steps}, block_length={bl}")
+    print(f"Dgrammar v2 async timed: {len(instances)} instances, seed={seed}, T={steps}, block_length={bl}")
 
     cached_checker = None
 
@@ -534,7 +530,7 @@ def main():
         timing["autocomplete_steps"] = ac_steps
         timing["autocomplete_mask_ms"] = ac_mask_ms
         timing["autocomplete_fwd_ms"] = ac_fwd_ms
-        # For async, effective constraint = gc + token_select + mask_wait + autocomplete_mask
+        # For async, effective constraint = gc + token_select + mask_wait + ac_mask
         # mask_compute was hidden behind forward pass
         effective_constraint_ms = (
             timing["grammar_check_total_ms"]
@@ -551,7 +547,7 @@ def main():
 
         result = {
             "instance_id": instance.instance_id(),
-            "method": "adagram_v2_async",
+            "method": "dgrammar_v2_async",
             "valid": valid,
             "extracted": extracted,
             "time_taken": elapsed,
