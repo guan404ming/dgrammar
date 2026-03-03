@@ -1,8 +1,8 @@
-"""Run AdaGram v2 async overlap (llguidance) with timing on Modal A100."""
+"""Run LAVE (CD4dLLM) with per-operation timing on Modal A100."""
 
 import modal
 
-app = modal.App("v2-async-timed-bench")
+app = modal.App("lave-timed-bench")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -19,19 +19,18 @@ image = (
         "maturin",
         "llguidance>=1.6",
         "huggingface_hub",
+        "stopit",
     )
-    .add_local_dir("vendor/constrained-diffusion", "/root/constrained-diffusion", copy=True)
+    .add_local_dir("vendor/CD4dLLM", "/root/CD4dLLM", copy=True)
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && "
         ". /root/.cargo/env && "
-        "cd /root/constrained-diffusion/rustformlang_bindings && "
+        "cd /root/CD4dLLM/rustformlang_bindings && "
         "maturin build --release && "
-        "pip install target/wheels/*.whl && "
-        "cd /root/constrained-diffusion && pip install -e .",
+        "pip install target/wheels/*cp312*.whl && "
+        "cd /root/CD4dLLM && pip install -e .",
     )
-    .add_local_dir("dgrammar", "/root/dgrammar")
-    .add_local_file("run_v2_async_timed.py", "/root/run_v2_async_timed.py")
-    .add_local_file("pyproject.toml", "/root/pyproject.toml")
+    .add_local_file("run_lave_timed.py", "/root/run_lave_timed.py")
 )
 
 RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
@@ -43,25 +42,22 @@ RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
     timeout=7200,
     volumes={"/results": RESULTS_VOL},
 )
-def run_chunk(seed: int, limit: int, offset: int, steps: int, block_ar: int = 1):
+def run_chunk(seed: int, limit: int, offset: int, steps: int):
     import subprocess
     import shutil
-
-    tag = "v2_async_ac4_timed" if block_ar else "v2_async_ac4_fullpar_timed"
-    suffix = f"_off{offset}" if offset > 0 else ""
-    local_file = f"/root/results/{tag}_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
-    out_file = f"/results/{tag}_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
-
-    # Remove stale output
     import os
+
+    suffix = f"_off{offset}" if offset > 0 else ""
+    local_file = f"/root/results/lave_timed_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
+    out_file = f"/results/lave_timed_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
+
     if os.path.exists(out_file):
         os.remove(out_file)
 
     result = subprocess.run(
         [
-            "python", "/root/run_v2_async_timed.py",
+            "python", "/root/run_lave_timed.py",
             str(seed), str(limit), "jsonschema", str(steps), str(offset),
-            str(block_ar),
         ],
         capture_output=True,
         text=True,
@@ -69,7 +65,7 @@ def run_chunk(seed: int, limit: int, offset: int, steps: int, block_ar: int = 1)
         env={
             "PATH": "/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
             "HOME": "/root",
-            "PYTHONPATH": "/root:/root/constrained-diffusion",
+            "PYTHONPATH": "/root:/root/CD4dLLM",
         },
     )
     print(result.stdout[-5000:] if result.stdout else "")
@@ -91,11 +87,9 @@ def main(
     total: int = 272,
     steps: int = 128,
     chunks: int = 2,
-    block_ar: int = 1,
 ):
     chunk_size = (total + chunks - 1) // chunks
-    mode = "block_ar=32" if block_ar else "full_parallel=256"
-    print(f"Running AdaGram v2 async timed on {chunks}x A100: jsonschema, seed={seed}, T={steps}, {mode}")
+    print(f"Running LAVE timed on {chunks}x A100: jsonschema, seed={seed}, T={steps}")
     print(f"Total={total}, chunk_size={chunk_size}")
 
     handles = []
@@ -105,7 +99,7 @@ def main(
         if limit <= 0:
             break
         print(f"  Chunk {i}: offset={offset}, limit={limit}")
-        handles.append(run_chunk.spawn(seed, limit, offset, steps, block_ar))
+        handles.append(run_chunk.spawn(seed, limit, offset, steps))
 
     for i, handle in enumerate(handles):
         result = handle.get()

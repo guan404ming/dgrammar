@@ -433,8 +433,9 @@ def main():
     dataset_name = sys.argv[3] if len(sys.argv) > 3 else "jsonschema"
     steps = int(sys.argv[4]) if len(sys.argv) > 4 else 128
     offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+    block_ar = int(sys.argv[6]) if len(sys.argv) > 6 else 1
 
-    tag = "v2_async_ac4_timed"
+    tag = "v2_async_ac4_fullpar_timed" if not block_ar else "v2_async_ac4_timed"
     ds_safe = dataset_name.replace("/", "_")
     sfx = f"_off{offset}" if offset > 0 else ""
     output_file = f"results/{tag}_{ds_safe}_s{seed}_t{steps}{sfx}.jsonl"
@@ -448,7 +449,8 @@ def main():
 
     all_instances = sorted(dataset, key=lambda x: x.instance_id())
     instances = all_instances[offset:offset + limit]
-    print(f"AdaGram v2 async timed: {len(instances)} instances, seed={seed}, T={steps}")
+    bl = 32 if block_ar else 256
+    print(f"AdaGram v2 async timed: {len(instances)} instances, seed={seed}, T={steps}, block_length={bl}")
 
     cached_checker = None
 
@@ -488,7 +490,7 @@ def main():
         for out, resamples, valid, violations, remasks, grammar_checks in generate_v2_async_timed(
             model, prompt_ids, tokenizer, checker=checker,
             prompt_len=prompt_len, steps=steps, gen_length=256,
-            block_length=32, temperature=0.2, remasking="low_confidence",
+            block_length=bl, temperature=0.2, remasking="low_confidence",
             max_batch_size=8, max_resamples=100,
         ):
             total_violations = violations
