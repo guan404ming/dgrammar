@@ -17,7 +17,7 @@ image = (
         "setuptools<75",
         "maturin",
     )
-    .add_local_dir("vendor/constrained-diffusion", "/root/constrained-diffusion", copy=True)
+    .add_local_dir("../vendor/constrained-diffusion", "/root/constrained-diffusion", copy=True)
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && "
         ". /root/.cargo/env && "

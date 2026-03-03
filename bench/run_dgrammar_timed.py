@@ -1,4 +1,4 @@
-"""Run Dgrammar v2 (llguidance) with async overlap: compute_mask runs in parallel with forward pass."""
+"""Run Dgrammar (llguidance) with async overlap: compute_mask runs in parallel with forward pass."""
 
 import json
 import time
@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from constrained_diffusion.eval.dllm.dataset import load_dataset
 from constrained_diffusion.eval.dllm.model import load_model
 from dgrammar.checker import TokenChecker
-from dgrammar.generate_v2 import add_gumbel_noise, get_num_transfer_tokens
+from dgrammar.generate import add_gumbel_noise, get_num_transfer_tokens
 
 
 class TimingStats:
@@ -173,7 +173,7 @@ def autocomplete_greedy(model, x, checker, consume_idx, gen_start, mask_id, eos_
 
 
 @torch.no_grad()
-def generate_v2_async_timed(
+def generate_async_timed(
     model, prompt, tokenizer, checker,
     prompt_len, steps=128, gen_length=256,
     block_length=32, temperature=0.0,
@@ -446,7 +446,7 @@ def main():
     all_instances = sorted(dataset, key=lambda x: x.instance_id())
     instances = all_instances[offset:offset + limit]
     bl = 32 if block_ar else 256
-    print(f"Dgrammar v2 async timed: {len(instances)} instances, seed={seed}, T={steps}, block_length={bl}")
+    print(f"Dgrammar timed: {len(instances)} instances, seed={seed}, T={steps}, block_length={bl}")
 
     cached_checker = None
 
@@ -483,7 +483,7 @@ def main():
         ac_mask_ms = 0.0
         ac_fwd_ms = 0.0
 
-        for out, resamples, valid, violations, remasks, grammar_checks in generate_v2_async_timed(
+        for out, resamples, valid, violations, remasks, grammar_checks in generate_async_timed(
             model, prompt_ids, tokenizer, checker=checker,
             prompt_len=prompt_len, steps=steps, gen_length=256,
             block_length=bl, temperature=0.2, remasking="low_confidence",

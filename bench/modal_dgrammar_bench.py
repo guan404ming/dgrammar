@@ -1,4 +1,4 @@
-"""Run Dgrammar v2 async overlap (llguidance) with timing on Modal A100."""
+"""Run Dgrammar async overlap (llguidance) with timing on Modal A100."""
 
 import modal
 
@@ -20,7 +20,7 @@ image = (
         "llguidance>=1.6",
         "huggingface_hub",
     )
-    .add_local_dir("vendor/constrained-diffusion", "/root/constrained-diffusion", copy=True)
+    .add_local_dir("../vendor/constrained-diffusion", "/root/constrained-diffusion", copy=True)
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && "
         ". /root/.cargo/env && "
@@ -29,9 +29,9 @@ image = (
         "pip install target/wheels/*.whl && "
         "cd /root/constrained-diffusion && pip install -e .",
     )
-    .add_local_dir("dgrammar", "/root/dgrammar")
-    .add_local_file("run_v2_async_timed.py", "/root/run_v2_async_timed.py")
-    .add_local_file("pyproject.toml", "/root/pyproject.toml")
+    .add_local_dir("../dgrammar", "/root/dgrammar")
+    .add_local_file("run_dgrammar_timed.py", "/root/run_dgrammar_timed.py")
+    .add_local_file("../pyproject.toml", "/root/pyproject.toml")
 )
 
 RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
@@ -59,7 +59,7 @@ def run_chunk(seed: int, limit: int, offset: int, steps: int, block_ar: int = 1)
 
     result = subprocess.run(
         [
-            "python", "/root/run_v2_async_timed.py",
+            "python", "/root/run_dgrammar_timed.py",
             str(seed), str(limit), "jsonschema", str(steps), str(offset),
             str(block_ar),
         ],

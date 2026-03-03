@@ -21,7 +21,7 @@ image = (
         "huggingface_hub",
         "stopit",
     )
-    .add_local_dir("vendor/CD4dLLM", "/root/CD4dLLM", copy=True)
+    .add_local_dir("../vendor/CD4dLLM", "/root/CD4dLLM", copy=True)
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && "
         ". /root/.cargo/env && "
@@ -31,6 +31,7 @@ image = (
         "cd /root/CD4dLLM && pip install -e .",
     )
     .add_local_file("run_lave_timed.py", "/root/run_lave_timed.py")
+
 )
 
 RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)

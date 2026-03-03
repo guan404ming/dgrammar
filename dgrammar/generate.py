@@ -1,7 +1,6 @@
-"""Dgrammar v2: adaptive batch generation with token-level grammar checking.
+"""Dgrammar: adaptive batch generation with token-level grammar checking.
 
 Uses llguidance for incremental left-to-right token validation.
-Key difference from v1: checker operates on token IDs directly (not character-level DFA).
 
 The checking strategy: maintain a consumed prefix index. After placing tokens,
 try to extend the consumed prefix. If a token breaks the prefix, remask just
@@ -73,7 +72,7 @@ def extend_prefix(checker: TokenChecker, x, consume_idx: int, mask_id: int):
 
 
 @torch.no_grad()
-def generate_v2(
+def generate(
     model,
     prompt,
     tokenizer,
@@ -91,7 +90,7 @@ def generate_v2(
     max_batch_size=8,
     max_resamples=100,
 ):
-    """Dgrammar v2 with incremental token-level grammar checking."""
+    """Dgrammar with incremental token-level grammar checking."""
     start_time = time.monotonic()
 
     x = torch.full(
