@@ -181,7 +181,8 @@ def generate_dgrammar(
     max_resamples=100,
     no_lexing_mask=None,
     template_ids=None,
-    type_masker=None,
+    token_mask_table=None,
+    soft_bias=None,
 ):
     """dGrammar adaptive batch generation with selective remasking.
 
@@ -263,16 +264,26 @@ def generate_dgrammar(
             if no_lexing_mask is not None:
                 logits[:, :, no_lexing_mask] = -np.inf
 
-            logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
+            # Save original logits for confidence ranking before DFA masking.
+            # DFA masking sets blocked logits to -inf, which would inflate
+            # softmax confidence at masked positions and disrupt the natural
+            # confidence-based placement order of the diffusion process.
+            logits_for_confidence = logits
 
-            # Type-aware masking: block tokens that don't match expected JSON type
-            if type_masker is not None:
-                n_type_masked = type_masker.apply_masks(
-                    logits_with_noise, generated_words, prompt_len,
-                    mask_id, block_start, block_end,
+            # Token-level DFA mask: only apply on the last 2 steps of each
+            # block. Earlier steps need the model's full distribution to
+            # establish coherent token placement across positions.
+            if token_mask_table is not None and (soft_bias is not None or i >= steps_per_block - 2):
+                logits = logits.clone()
+                n_masked = token_mask_table.apply_prefix_masks(
+                    logits, x[0], block_start, block_end, mask_id,
+                    gen_start=prompt.shape[1],
+                    soft_bias=soft_bias,
                 )
-                if trace and n_type_masked > 0:
-                    print(f"  Type-masked {n_type_masked} positions")
+                if trace and n_masked > 0:
+                    print(f"  Token-DFA masked {n_masked} positions (step {i}/{steps_per_block})")
+
+            logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
 
             n_scheduled = num_transfer_tokens[0, i].item()
             if n_scheduled == 0:
@@ -288,7 +299,7 @@ def generate_dgrammar(
                 x0 = torch.argmax(logits_with_noise, dim=-1)
 
                 if remasking == "low_confidence":
-                    p = F.softmax(logits.to(torch.float64), dim=-1)
+                    p = F.softmax(logits_for_confidence.to(torch.float64), dim=-1)
                     x0_p = torch.squeeze(
                         torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1
                     )

@@ -1,8 +1,8 @@
-"""Run dGrammar+typemask benchmarks on Modal with A100 GPUs."""
+"""Run soft constrained decoding POC on Modal with A100 GPU."""
 
 import modal
 
-app = modal.App("dgrammar-typemask-bench")
+app = modal.App("dgrammar-soft-bench")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -27,7 +27,7 @@ image = (
         "cd /root/constrained-diffusion && pip install -e .",
     )
     .add_local_dir("dgrammar", "/root/dgrammar")
-    .add_local_file("run_typemask_eval.py", "/root/run_typemask_eval.py")
+    .add_local_file("run_soft_eval.py", "/root/run_soft_eval.py")
     .add_local_file("pyproject.toml", "/root/pyproject.toml")
 )
 
@@ -37,26 +37,23 @@ RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
 @app.function(
     image=image,
     gpu="A100",
-    timeout=7200,
+    timeout=3600,
     volumes={"/results": RESULTS_VOL},
 )
-def run_chunk(seed: int, limit: int, offset: int, dataset: str, steps: int, tag: str = ""):
+def run_soft(seed: int, limit: int, offset: int, dataset: str, steps: int, soft_bias: float):
     import subprocess
     import shutil
 
     ds_safe = dataset.replace("/", "_")
+    bias_tag = f"sb{soft_bias}"
     suffix = f"_off{offset}" if offset > 0 else ""
-    if tag:
-        suffix += f"_{tag}"
-    local_file = f"/root/results/dgrammar_typemask_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
-    out_file = f"/results/dgrammar_typemask_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
+    local_file = f"/root/results/soft_{bias_tag}_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
+    out_file = f"/results/soft_{bias_tag}_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
 
     args = [
-        "python", "/root/run_typemask_eval.py",
-        str(seed), str(limit), dataset, str(steps), str(offset),
+        "python", "/root/run_soft_eval.py",
+        str(seed), str(limit), dataset, str(steps), str(offset), str(soft_bias),
     ]
-    if tag:
-        args.append(tag)
 
     result = subprocess.run(
         args,
@@ -71,7 +68,7 @@ def run_chunk(seed: int, limit: int, offset: int, dataset: str, steps: int, tag:
     )
     print(result.stdout[-3000:] if result.stdout else "")
     if result.stderr:
-        print("STDERR:", result.stderr[-1000:])
+        print("STDERR:", result.stderr[-2000:])
 
     try:
         shutil.copy2(local_file, out_file)
@@ -85,26 +82,20 @@ def run_chunk(seed: int, limit: int, offset: int, dataset: str, steps: int, tag:
 @app.local_entrypoint()
 def main(
     seed: int = 0,
-    total: int = 272,
+    limit: int = 10,
     dataset: str = "jsonschema",
     steps: int = 128,
-    chunks: int = 8,
-    tag: str = "",
 ):
-    chunk_size = (total + chunks - 1) // chunks
-    print(f"Running dGrammar+typemask on {chunks}x A100: {dataset}, seed={seed}, T={steps}")
-    print(f"Total={total}, chunk_size={chunk_size}")
+    # Test multiple soft bias values in parallel
+    bias_values = [3.0, 5.0, 10.0, 20.0]
+    print(f"Running soft bias POC: {len(bias_values)} configs x {limit} instances")
 
     handles = []
-    for i in range(chunks):
-        offset = i * chunk_size
-        limit = min(chunk_size, total - offset)
-        if limit <= 0:
-            break
-        print(f"  Chunk {i}: offset={offset}, limit={limit}")
-        handles.append(run_chunk.spawn(seed, limit, offset, dataset, steps, tag))
+    for bias in bias_values:
+        print(f"  soft_bias={bias}")
+        handles.append(run_soft.spawn(seed, limit, 0, dataset, steps, bias))
 
-    for i, handle in enumerate(handles):
+    for bias, handle in zip(bias_values, handles):
         result = handle.get()
-        print(f"\n=== Chunk {i} ===")
+        print(f"\n=== soft_bias={bias} ===")
         print(result)

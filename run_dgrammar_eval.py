@@ -33,6 +33,7 @@ def run_benchmark(
     temperature: float = 0.2,
     max_batch_size: int = 8,
     max_remask_attempts: int = 3,
+    max_retries: int = 3,
     trace: bool = False,
     device: str = "cuda",
 ):
@@ -101,97 +102,134 @@ def run_benchmark(
 
         start_time = time.monotonic()
 
-        # Run dGrammar generation
+        # Retry loop with escalating parameters
+        retry_tokens = [max_tokens, 384, 512]
+        retry_resamples = [100, 200, 200]
+        attempts_used = 0
+
         out = None
         resamples_list = []
         total_violations = 0
         total_remasks = 0
-
         total_grammar_checks = 0
-        for out, resamples_list, valid, violations, remasks, grammar_checks in generate_dgrammar(
-            model, prompt_ids, tokenizer,
-            constraint_lang=lang,
-            lex_map=lex_map,
-            prompt_len=prompt_len,
-            steps=steps,
-            gen_length=max_tokens,
-            block_length=32,
-            temperature=temperature,
-            remasking="low_confidence",
-            trace=trace,
-            prelex=prelex,
-            subtokens=subtokens,
-            strip_chars=instance.strip_chars(),
-            additional_stuff=additional_stuff,
-            constrain=True,
-            max_batch_size=max_batch_size,
-            max_remask_attempts=max_remask_attempts,
-            no_lexing_mask=cached_no_lexing_mask,
-        ):
-            total_violations = violations
-            total_remasks = remasks
-            total_grammar_checks = grammar_checks
-
-        elapsed = time.monotonic() - start_time
-
-        if out is None:
-            code = "TIMEOUT"
-            code_raw = "TIMEOUT"
-        else:
-            code = tokenizer.batch_decode(
-                out[:, prompt_ids.shape[1]:], skip_special_tokens=True
-            )[0]
-            code_raw = tokenizer.batch_decode(out.squeeze(), skip_special_tokens=False)
-
-        extracted = instance.extract_result(suffix + start_line + code)
-
-        # Autocompletion: if output is not valid, sample from grammar intersection
+        valid = False
+        code = "TIMEOUT"
+        code_raw = "TIMEOUT"
+        extracted = None
         autocompletion_raw = None
         autocompletion = None
         time_taken_autocompletion = None
         supertokens_map = derive_supertokens(subtokens) if subtokens else {}
 
-        if out is not None and not valid:
-            ac_start = time.monotonic()
-            mask_id = 126336
-            mask_decoded = tokenizer.decode(mask_id)
-            eos_token = tokenizer.special_tokens_map["eos_token"]
-            generated_words = tokenizer.batch_decode(out.squeeze())
-            generated_words = [
-                None if x == mask_decoded
-                else EOS if x in (eos_token, "<|eot_id|>", "<|endoftext|>")
-                else x
-                for x in generated_words[prompt_len:]
-            ]
-            partial_output, first_token_gap, last_token_eos_adj = (
-                partial_output_from_tokens(generated_words, prelex)
-            )
-            valid_completion = autocomplete_valid(
-                partial_output=partial_output,
-                first_token_gap=first_token_gap,
-                last_token_eos_adj=last_token_eos_adj,
-                generated_lang=generated_language(
-                    generated_words,
-                    lex_map, lang.get_terminals(),
-                    trace=trace, prelex=prelex,
-                    subtokens=subtokens,
-                    supertokens=supertokens_map,
-                    strip_chars=instance.strip_chars(),
-                ),
-                subtokens=subtokens,
-                lex_map=orig_lex_map,
+        for attempt in range(1 + max_retries):
+            attempt_tokens = retry_tokens[min(attempt, len(retry_tokens) - 1)]
+            attempt_resamples = retry_resamples[min(attempt, len(retry_resamples) - 1)]
+
+            # Use different seed for retries
+            if attempt > 0:
+                torch.manual_seed(seed + attempt * 1000)
+                if trace:
+                    print(f"  Retry {attempt}: seed={seed + attempt * 1000}, "
+                          f"max_tokens={attempt_tokens}, max_resamples={attempt_resamples}")
+
+            out = None
+            resamples_list = []
+            total_violations = 0
+            total_remasks = 0
+            total_grammar_checks = 0
+
+            for out, resamples_list, valid, violations, remasks, grammar_checks in generate_dgrammar(
+                model, prompt_ids, tokenizer,
                 constraint_lang=lang,
+                lex_map=lex_map,
+                prompt_len=prompt_len,
+                steps=steps,
+                gen_length=attempt_tokens,
+                block_length=32,
+                temperature=temperature,
+                remasking="low_confidence",
                 trace=trace,
-            )
-            time_taken_autocompletion = time.monotonic() - ac_start
-            if valid_completion is not None:
-                autocompletion_raw = valid_completion
-                autocompletion = instance.extract_result(
-                    suffix + valid_completion
+                prelex=prelex,
+                subtokens=subtokens,
+                strip_chars=instance.strip_chars(),
+                additional_stuff=additional_stuff,
+                constrain=True,
+                max_batch_size=max_batch_size,
+                max_remask_attempts=max_remask_attempts,
+                max_resamples=attempt_resamples,
+                no_lexing_mask=cached_no_lexing_mask,
+            ):
+                total_violations = violations
+                total_remasks = remasks
+                total_grammar_checks = grammar_checks
+
+            attempts_used = attempt + 1
+
+            if out is None:
+                code = "TIMEOUT"
+                code_raw = "TIMEOUT"
+            else:
+                code = tokenizer.batch_decode(
+                    out[:, prompt_ids.shape[1]:], skip_special_tokens=True
+                )[0]
+                code_raw = tokenizer.batch_decode(out.squeeze(), skip_special_tokens=False)
+
+            extracted = instance.extract_result(suffix + start_line + code)
+
+            # If valid, no need to retry
+            if valid:
+                break
+
+            # Try autocompletion before retrying
+            autocompletion_raw = None
+            autocompletion = None
+            time_taken_autocompletion = None
+
+            if out is not None:
+                ac_start = time.monotonic()
+                mask_id = 126336
+                mask_decoded = tokenizer.decode(mask_id)
+                eos_token = tokenizer.special_tokens_map["eos_token"]
+                generated_words = tokenizer.batch_decode(out.squeeze())
+                generated_words = [
+                    None if x == mask_decoded
+                    else EOS if x in (eos_token, "<|eot_id|>", "<|endoftext|>")
+                    else x
+                    for x in generated_words[prompt_len:]
+                ]
+                partial_output, first_token_gap, last_token_eos_adj = (
+                    partial_output_from_tokens(generated_words, prelex)
                 )
-            if trace:
-                print(f"  Autocompletion: {valid_completion is not None}, "
-                      f"time={time_taken_autocompletion:.1f}s")
+                valid_completion = autocomplete_valid(
+                    partial_output=partial_output,
+                    first_token_gap=first_token_gap,
+                    last_token_eos_adj=last_token_eos_adj,
+                    generated_lang=generated_language(
+                        generated_words,
+                        lex_map, lang.get_terminals(),
+                        trace=trace, prelex=prelex,
+                        subtokens=subtokens,
+                        supertokens=supertokens_map,
+                        strip_chars=instance.strip_chars(),
+                    ),
+                    subtokens=subtokens,
+                    lex_map=orig_lex_map,
+                    constraint_lang=lang,
+                    trace=trace,
+                )
+                time_taken_autocompletion = time.monotonic() - ac_start
+                if valid_completion is not None:
+                    autocompletion_raw = valid_completion
+                    autocompletion = instance.extract_result(
+                        suffix + valid_completion
+                    )
+                    break  # Autocompletion succeeded, no need to retry
+
+        # Restore original seed after retries
+        if attempts_used > 1:
+            torch.manual_seed(seed)
+
+        elapsed = time.monotonic() - start_time
 
         result = {
             "dataset": dataset_name,
@@ -218,6 +256,7 @@ def run_benchmark(
                 "remasks": total_remasks,
                 "grammar_checks": total_grammar_checks,
                 "max_batch_size": max_batch_size,
+                "attempts": attempts_used,
             },
         }
 
@@ -225,10 +264,11 @@ def run_benchmark(
         with open(output_file, "a") as f:
             print(json.dumps(result), flush=True, file=f)
 
+        retry_info = f", attempts={attempts_used}" if attempts_used > 1 else ""
         print(
             f"  [{i+1}/{len(instances)}] {instance.instance_id()}: "
             f"violations={total_violations}, remasks={total_remasks}, "
-            f"checks={total_grammar_checks}, time={elapsed:.1f}s"
+            f"checks={total_grammar_checks}, time={elapsed:.1f}s{retry_info}"
         )
 
 

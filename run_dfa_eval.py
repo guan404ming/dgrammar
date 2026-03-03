@@ -1,4 +1,8 @@
-"""Run dGrammar with type-aware masking on jsonschema benchmark."""
+"""Run dGrammar with token-level DFA pre-masking on ETH benchmarks.
+
+Same as run_dgrammar_eval.py but with TokenDFATable for lex+CFG pre-masking.
+Uses rustformlang's own DFAs for masking, so no grammar engine conflicts.
+"""
 
 import json
 import time
@@ -15,8 +19,8 @@ from constrained_diffusion.constrain_utils import (
 from constrained_diffusion.eval.dllm.dataset import load_dataset
 from constrained_diffusion.eval.dllm.model import load_model
 from rustformlang.cfg import CFG
-from dgrammar.generate_dgrammar import generate_dgrammar, compute_no_lexing_mask
-from dgrammar.type_mask import TypeAwareMasker
+from dgrammar.generate_dgrammar import generate_dgrammar
+from dgrammar.token_dfa import TokenDFATable
 
 
 def run_benchmark(
@@ -24,11 +28,12 @@ def run_benchmark(
     seed: int = 0,
     limit: int = 1000,
     offset: int = 0,
-    output_file: str = "results/dgrammar_typemask.jsonl",
-    steps: int = 128,
+    output_file: str = "results/dgrammar_dfa.jsonl",
+    steps: int = 32,
     max_tokens: int = 256,
     temperature: float = 0.2,
     max_batch_size: int = 8,
+    max_remask_attempts: int = 3,
     trace: bool = False,
     device: str = "cuda",
 ):
@@ -46,17 +51,15 @@ def run_benchmark(
 
     tokenizer = eval_model.tokenizer(device)
     model = eval_model.model(device)
-    mask_id = 126336
 
     lang, lex_map, subtokens = None, None, None
     prelex = None
     additional_stuff = None
-
-    # Cache type maskers per schema to avoid recomputing
-    type_masker_cache = {}
+    token_mask_table = None
+    orig_lex_map = None
 
     instances = sorted(dataset, key=lambda x: x.instance_id())[offset:offset + limit]
-    print(f"Running dGrammar+typemask on {len(instances)} {dataset_name} instances, seed={seed}")
+    print(f"Running dGrammar+DFA on {len(instances)} {dataset_name} instances, seed={seed}")
 
     for i, instance in enumerate(instances):
         if instance.instance_id() in done:
@@ -65,17 +68,32 @@ def run_benchmark(
         # Load grammar per instance if needed
         if lang is None or dataset.different_grammar_per_instance:
             lang, lex_map, subtokens = instance.language_lex_subtokens()
-            orig_lex_map = lex_map
             lang = lang.concatenate(CFG.from_text("S -> lexFence | $", "S"))
             if instance.strip_chars() is not None and "\n" not in instance.strip_chars():
                 lex_map["lexFence"] = r"\n?```"
             else:
                 lex_map["lexFence"] = "```"
+            orig_lex_map = lex_map.copy()
             lang = lang.to_normal_form()
             assert not lang.is_empty(), "Language is empty"
+
+            # Save raw lex_map before compilation for TokenDFATable
+            raw_lex_map = lex_map.copy()
             lex_map = compile_lex_map(lex_map, subtokens=subtokens)
             additional_stuff = None
             prelex = instance.prelex()
+
+            # Build TokenDFATable for this grammar
+            t0 = time.monotonic()
+            token_mask_table = TokenDFATable(
+                tokenizer, raw_lex_map, lex_map, model.device,
+                constraint_lang=lang,
+                prelex=prelex,
+                strip_chars=instance.strip_chars(),
+                trace=trace,
+            )
+            if trace:
+                print(f"  TokenDFATable built in {time.monotonic() - t0:.2f}s")
 
         if additional_stuff is None:
             additional_stuff = preprocessed_generate_stuff(
@@ -84,22 +102,6 @@ def run_benchmark(
                 subtokens=subtokens, strip_chars=instance.strip_chars(),
             )
 
-        # Build type masker from schema
-        schema_str = instance.data.get("schema", "")
-        type_masker = None
-        if schema_str:
-            if schema_str not in type_masker_cache:
-                try:
-                    type_masker_cache[schema_str] = TypeAwareMasker(
-                        schema_str, tokenizer, device=device,
-                    )
-                except Exception as e:
-                    if trace:
-                        print(f"  TypeAwareMasker failed: {e}")
-                    type_masker_cache[schema_str] = None
-            type_masker = type_masker_cache[schema_str]
-
-        # Prepare prompt
         prompt_ids, prompt_len, suffix, start_line, prompt_raw = (
             eval_model.prepare_prompt(instance, tokenizer, model, trace=trace)
         )
@@ -129,7 +131,8 @@ def run_benchmark(
             additional_stuff=additional_stuff,
             constrain=True,
             max_batch_size=max_batch_size,
-            type_masker=type_masker,
+            max_remask_attempts=max_remask_attempts,
+            token_mask_table=token_mask_table,
         ):
             total_violations = violations
             total_remasks = remasks
@@ -156,6 +159,7 @@ def run_benchmark(
 
         if out is not None and not valid:
             ac_start = time.monotonic()
+            mask_id = 126336
             mask_decoded = tokenizer.decode(mask_id)
             eos_token = tokenizer.special_tokens_map["eos_token"]
             generated_words = tokenizer.batch_decode(out.squeeze())
@@ -196,7 +200,7 @@ def run_benchmark(
             "dataset": dataset_name,
             "instance_id": instance.instance_id(),
             "prompt": prompt_raw,
-            "constrained": "dgrammar_typemask",
+            "constrained": "dgrammar+dfa",
             "model_name": "GSAI-ML/LLaDA-8B-Instruct",
             "code": code,
             "code_raw": code_raw,
@@ -217,7 +221,6 @@ def run_benchmark(
                 "remasks": total_remasks,
                 "grammar_checks": total_grammar_checks,
                 "max_batch_size": max_batch_size,
-                "type_masker": type_masker is not None,
             },
         }
 
@@ -228,8 +231,7 @@ def run_benchmark(
         print(
             f"  [{i+1}/{len(instances)}] {instance.instance_id()}: "
             f"violations={total_violations}, remasks={total_remasks}, "
-            f"checks={total_grammar_checks}, typemask={'yes' if type_masker else 'no'}, "
-            f"time={elapsed:.1f}s"
+            f"checks={total_grammar_checks}, time={elapsed:.1f}s"
         )
 
 
@@ -237,7 +239,7 @@ def main():
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     limit = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
     dataset = sys.argv[3] if len(sys.argv) > 3 else "jsonschema"
-    steps = int(sys.argv[4]) if len(sys.argv) > 4 else 128
+    steps = int(sys.argv[4]) if len(sys.argv) > 4 else 32
     offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     tag = sys.argv[6] if len(sys.argv) > 6 else ""
 
@@ -251,7 +253,7 @@ def main():
         limit=limit,
         offset=offset,
         steps=steps,
-        output_file=f"results/dgrammar_typemask_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl",
+        output_file=f"results/dgrammar_dfa_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl",
     )
 
 
