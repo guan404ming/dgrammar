@@ -31,10 +31,16 @@ def generate_unconstrained(
     model, prompt, steps=128, gen_length=256,
     block_length=32, temperature=0.2,
     mask_id=126336, eos_id=126081, eot_id=126348,
+    capture_steps=None,
 ):
     """Pure LLaDA diffusion generation without any grammar constraint.
 
-    Returns (x, hidden_states) where hidden_states is from the final forward pass.
+    Args:
+        capture_steps: set of global step indices at which to capture hidden states.
+            If None, only captures at the final step.
+
+    Returns (x, step_hidden_states) where step_hidden_states is a dict
+    mapping global_step -> tuple of hidden state tensors.
     """
     x = torch.full((1, prompt.shape[1] + gen_length), mask_id, dtype=torch.long).to(model.device)
     x[:, :prompt.shape[1]] = prompt.clone()
@@ -42,6 +48,13 @@ def generate_unconstrained(
     gen_start = prompt.shape[1]
     num_blocks = gen_length // block_length
     steps_per_block = steps // num_blocks
+    total_steps = num_blocks * steps_per_block
+
+    if capture_steps is None:
+        capture_steps = {total_steps - 1}
+
+    step_hidden_states = {}
+    global_step = 0
 
     for num_block in range(num_blocks):
         block_start = gen_start + num_block * block_length
@@ -51,17 +64,18 @@ def generate_unconstrained(
         num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps_per_block)
 
         for i in range(steps_per_block):
-            is_last_step = (num_block == num_blocks - 1 and i == steps_per_block - 1)
-            out = model(x, output_hidden_states=is_last_step)
+            need_hs = global_step in capture_steps
+            out = model(x, output_hidden_states=need_hs)
             logits = out.logits
 
-            if is_last_step and hasattr(out, 'hidden_states') and out.hidden_states:
-                hidden_states = out.hidden_states
+            if need_hs and hasattr(out, 'hidden_states') and out.hidden_states:
+                step_hidden_states[global_step] = out.hidden_states
 
             logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
 
             n_transfer = num_transfer_tokens[0, i].item()
             if n_transfer == 0:
+                global_step += 1
                 continue
 
             mask_index = x == mask_id
@@ -79,17 +93,21 @@ def generate_unconstrained(
 
             n_unmask = min(n_transfer, mask_index[0, block_start:block_end].sum().item())
             if n_unmask == 0:
+                global_step += 1
                 continue
 
             _, indices = torch.topk(confidence[0], k=n_unmask)
             x[0, indices] = x0[0, indices]
+            global_step += 1
 
-    # If we didn't capture hidden states (e.g. complete early), do one more pass
-    if 'hidden_states' not in dir():
-        out = model(x, output_hidden_states=True)
-        hidden_states = out.hidden_states
+    # Fill any missing captures
+    for s in capture_steps:
+        if s not in step_hidden_states:
+            out = model(x, output_hidden_states=True)
+            step_hidden_states[s] = out.hidden_states
+            break
 
-    return x, hidden_states
+    return x, step_hidden_states
 
 
 # ---- Post-hoc functional correctness check ----
@@ -100,7 +118,8 @@ def check_functional(extracted, instance):
     Compares generated JSON against the reference solution from the dataset.
     Uses ETH's checker for consistency with benchmark evaluation.
     """
-    from constrained_diffusion.eval.dllm.jsonmode.checker import check_instance
+    sys.path.insert(0, str(Path(__file__).parent.parent / "vendor" / "constrained-diffusion"))
+    from eval.dllm.jsonmode.checker import check_instance
 
     output = {
         "instance_id": instance.instance_id(),
@@ -138,6 +157,7 @@ def main():
     n_functional = 0
     n_syntax = 0
     n_total = 0
+    all_meta = []
 
     for i, instance in enumerate(instances):
         schema_str = instance.data.get("schema", "")
@@ -153,9 +173,15 @@ def main():
             torch.manual_seed(seed)
             t0 = time.monotonic()
 
-            x, hidden_states = generate_unconstrained(
+            # Capture at early (step 0), 25%, 50%, 75%, and final step
+            total_steps = 128  # steps
+            capture_steps = {0, total_steps // 4, total_steps // 2,
+                             3 * total_steps // 4, total_steps - 1}
+
+            x, step_hidden_states = generate_unconstrained(
                 model, prompt_ids, steps=128, gen_length=256,
                 block_length=32, temperature=0.2,
+                capture_steps=capture_steps,
             )
 
             elapsed = time.monotonic() - t0
@@ -175,48 +201,49 @@ def main():
             if syntax_ok:
                 n_syntax += 1
 
-            # Extract generation region hidden states
             gen_len = x.shape[1] - gen_start
-            n_layers = len(hidden_states)
-
-            layers = []
-            for layer_idx in range(n_layers):
-                h = hidden_states[layer_idx][0, gen_start:gen_start + gen_len]
-                layers.append(h.cpu().to(torch.float16).numpy())
-
-            all_hidden = np.stack(layers, axis=0)  # [n_layers, gen_len, hidden_dim]
-
             gen_ids = x[0, gen_start:].tolist()
 
+            # Save per-step hidden states
+            fname = f"{instance.instance_id()}_s{seed}"
+            npz_data = {"token_ids": np.array(gen_ids, dtype=np.int32)}
+
+            for step_idx, hs_tuple in step_hidden_states.items():
+                n_layers = len(hs_tuple)
+                layers = []
+                for layer_idx in range(n_layers):
+                    h = hs_tuple[layer_idx][0, gen_start:gen_start + gen_len]
+                    layers.append(h.cpu().to(torch.float16).numpy())
+                npz_data[f"step_{step_idx}"] = np.stack(layers, axis=0)
+
+            np.savez_compressed(output_dir / f"{fname}.npz", **npz_data)
+
+            file_size = (output_dir / f"{fname}.npz").stat().st_size / 1024 / 1024
             print(
                 f"  [{i+1}/{len(instances)}] {instance.instance_id()} s{seed}: "
                 f"functional={functional}, syntax={syntax_ok}, time={elapsed:.1f}s, "
-                f"shape={all_hidden.shape}, size={all_hidden.nbytes/1024/1024:.1f}MB"
+                f"steps={sorted(step_hidden_states.keys())}, size={file_size:.1f}MB"
             )
 
-            # Save hidden states + labels
-            fname = f"{instance.instance_id()}_s{seed}"
-            np.savez_compressed(
-                output_dir / f"{fname}.npz",
-                hidden_states=all_hidden,
-                token_ids=np.array(gen_ids, dtype=np.int32),
-            )
-
-            meta = {
+            all_meta.append({
                 "instance_id": instance.instance_id(),
                 "seed": seed,
                 "functional": functional,
                 "syntax_ok": syntax_ok,
                 "extracted": extracted,
                 "n_layers": n_layers,
-                "hidden_dim": all_hidden.shape[-1],
+                "hidden_dim": npz_data[f"step_{sorted(step_hidden_states.keys())[0]}"].shape[-1],
                 "gen_len": gen_len,
-            }
-            with open(output_dir / f"{fname}.json", "w") as f:
-                json.dump(meta, f)
+                "capture_steps": sorted(step_hidden_states.keys()),
+                "npz": f"{fname}.npz",
+            })
+
+    with open(output_dir / "meta.json", "w") as f:
+        json.dump(all_meta, f, indent=2)
 
     print(f"\nDone. functional={n_functional}/{n_total} ({n_functional/n_total*100:.1f}%), "
           f"syntax={n_syntax}/{n_total} ({n_syntax/n_total*100:.1f}%)")
+    print(f"Metadata saved to {output_dir / 'meta.json'}")
 
 
 if __name__ == "__main__":
