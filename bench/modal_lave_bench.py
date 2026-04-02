@@ -31,7 +31,7 @@ image = (
         "cd /root/CD4dLLM && pip install -e .",
     )
     .add_local_file("run_lave_timed.py", "/root/run_lave_timed.py")
-
+    .add_local_file("jsb_dataset.py", "/root/jsb_dataset.py")
 )
 
 RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
@@ -43,14 +43,16 @@ RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
     timeout=7200,
     volumes={"/results": RESULTS_VOL},
 )
-def run_chunk(seed: int, limit: int, offset: int, steps: int):
+def run_chunk(seed: int, limit: int, offset: int, steps: int,
+              dataset: str = "jsonschema", instance_timeout: int = 120):
     import subprocess
     import shutil
     import os
 
+    ds_safe = dataset.replace("/", "_")
     suffix = f"_off{offset}" if offset > 0 else ""
-    local_file = f"/root/results/lave_timed_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
-    out_file = f"/results/lave_timed_jsonschema_s{seed}_t{steps}{suffix}.jsonl"
+    local_file = f"/root/results/lave_timed_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
+    out_file = f"/results/lave_timed_{ds_safe}_s{seed}_t{steps}{suffix}.jsonl"
 
     if os.path.exists(out_file):
         os.remove(out_file)
@@ -58,7 +60,8 @@ def run_chunk(seed: int, limit: int, offset: int, steps: int):
     result = subprocess.run(
         [
             "python", "/root/run_lave_timed.py",
-            str(seed), str(limit), "jsonschema", str(steps), str(offset),
+            str(seed), str(limit), dataset, str(steps), str(offset),
+            str(instance_timeout),
         ],
         capture_output=True,
         text=True,
@@ -88,9 +91,11 @@ def main(
     total: int = 272,
     steps: int = 128,
     chunks: int = 2,
+    dataset: str = "jsonschema",
+    instance_timeout: int = 120,
 ):
     chunk_size = (total + chunks - 1) // chunks
-    print(f"Running LAVE timed on {chunks}x A100: jsonschema, seed={seed}, T={steps}")
+    print(f"Running LAVE timed on {chunks}x A100: {dataset}, seed={seed}, T={steps}, timeout={instance_timeout}s")
     print(f"Total={total}, chunk_size={chunk_size}")
 
     handles = []
@@ -100,7 +105,7 @@ def main(
         if limit <= 0:
             break
         print(f"  Chunk {i}: offset={offset}, limit={limit}")
-        handles.append(run_chunk.spawn(seed, limit, offset, steps))
+        handles.append(run_chunk.spawn(seed, limit, offset, steps, dataset, instance_timeout))
 
     for i, handle in enumerate(handles):
         result = handle.get()
