@@ -147,8 +147,12 @@ def extend_prefix(checker: TokenChecker, x, consume_idx: int, mask_id: int, stat
 
 
 @torch.no_grad()
+def _default_forward(model, x):
+    return model(x).logits
+
+
 def autocomplete_greedy(model, x, checker, consume_idx, gen_start, mask_id, eos_id,
-                        refresh_interval=8):
+                        refresh_interval=8, forward_fn=None):
     """Grammar-guided greedy completion from consume_idx forward.
 
     Diffusion models give logits for all positions at once. We exploit this by
@@ -157,6 +161,8 @@ def autocomplete_greedy(model, x, checker, consume_idx, gen_start, mask_id, eos_
 
     Returns (x, autocomplete_steps, autocomplete_mask_ms, autocomplete_fwd_ms).
     """
+    if forward_fn is None:
+        forward_fn = _default_forward
     ac_steps = 0
     ac_fwd_ms = 0.0
     ac_mask_ms = 0.0
@@ -172,7 +178,7 @@ def autocomplete_greedy(model, x, checker, consume_idx, gen_start, mask_id, eos_
         # Refresh logits periodically
         if steps_since_refresh >= refresh_interval:
             t_fwd = time.perf_counter()
-            logits = model(x).logits
+            logits = forward_fn(model, x)
             ac_fwd_ms += (time.perf_counter() - t_fwd) * 1000
             steps_since_refresh = 0
 
@@ -214,6 +220,72 @@ def autocomplete_greedy(model, x, checker, consume_idx, gen_start, mask_id, eos_
     return x, ac_steps, ac_mask_ms, ac_fwd_ms
 
 
+def autocomplete_ar(model, x, checker, consume_idx, gen_start, mask_id, eos_id,
+                    forward_fn=None):
+    """Per-position AR fallback: one forward per token, grammar-masked argmax.
+
+    Replaces the greedy variant for the tail completion. Each emitted token is
+    selected under fresh logits, so the autocomplete loop cannot accumulate the
+    JSON-syntax corruption that plagues the multi-position greedy version
+    (stale logits + grammar mask producing unterminated strings, missing
+    delimiters, etc.). Costs one forward pass per position (vs. one per
+    refresh_interval), but only fires on instances where the diffusion loop
+    failed to reach an accepting state, so the cost is bounded.
+
+    Returns (x, autocomplete_steps, autocomplete_mask_ms, autocomplete_fwd_ms).
+    """
+    if forward_fn is None:
+        forward_fn = _default_forward
+    ac_steps = 0
+    ac_fwd_ms = 0.0
+    ac_mask_ms = 0.0
+    seq_len = x.shape[1]
+
+    while consume_idx < seq_len:
+        if checker.is_accepting():
+            for j in range(consume_idx, seq_len):
+                x[0, j] = eos_id
+            break
+
+        # Fresh forward each step (the AR correction)
+        t_fwd = time.perf_counter()
+        logits = forward_fn(model, x)
+        ac_fwd_ms += (time.perf_counter() - t_fwd) * 1000
+
+        t_mc = time.perf_counter()
+        bias = checker.compute_mask(vocab_size=logits.shape[-1])
+        ac_mask_ms += (time.perf_counter() - t_mc) * 1000
+
+        logits[0, consume_idx, bias] = -np.inf
+        best = torch.argmax(logits[0, consume_idx]).item()
+
+        if logits[0, consume_idx, best] == -np.inf:
+            break
+
+        x[0, consume_idx] = best
+        c = checker.matcher.try_consume_tokens([best])
+        if c != 1:
+            break
+        consume_idx += 1
+        ac_steps += 1
+
+        # Walk past any already-committed non-mask tokens (rare; may happen
+        # if diffusion left valid suffix beyond consume_idx).
+        while consume_idx < seq_len:
+            tid = x[0, consume_idx].item()
+            if tid == mask_id:
+                break
+            c = checker.matcher.try_consume_tokens([tid])
+            if c == 1:
+                consume_idx += 1
+                ac_steps += 1
+            else:
+                x[0, consume_idx] = mask_id
+                break
+
+    return x, ac_steps, ac_mask_ms, ac_fwd_ms
+
+
 @torch.no_grad()
 def generate(
     model,
@@ -230,6 +302,8 @@ def generate(
     eot_id=126348,
     max_batch_size=8,
     max_resamples=100,
+    async_mask=True,
+    forward_fn=None,
     stats=None,
 ):
     """Dgrammar v2+AC4: async overlap + adaptive batch + frontier masking.
@@ -237,9 +311,14 @@ def generate(
     Main diffusion loop with incremental token-level grammar checking.
     Pass a TimingStats instance to `stats` to collect per-operation profiling.
 
+    Set `async_mask=False` to disable the background mask-compute thread; the
+    sync fallback path then handles every frontier mask. Used for ablations.
+
     Yields (x, resamples, is_complete, total_violations, total_remasks, total_grammar_checks)
     after each block-step. The final yield carries the terminal is_complete flag.
     """
+    if forward_fn is None:
+        forward_fn = _default_forward
     start_time = time.monotonic()
 
     x = torch.full(
@@ -283,18 +362,20 @@ def generate(
             # Precompute mask async if frontier is a mask: overlaps with forward
             mask_index_pre = x == mask_id
             need_mask = (
-                consume_idx < x.shape[1]
+                async_mask
+                and consume_idx < x.shape[1]
                 and mask_index_pre[0, consume_idx]
                 and pending_mask is None
             )
             if need_mask:
-                vocab_size = 126464  # corrected after logits are available
-                thread, result_holder = compute_mask_async(checker, vocab_size)
+                # Pass None: TokenChecker auto-sizes from llguidance bias array;
+                # later we truncate/pad to logits.shape[-1] if needed.
+                thread, result_holder = compute_mask_async(checker, None)
                 pending_mask = (thread, result_holder)
 
             # Model forward
             t_fwd = time.perf_counter() if stats is not None else None
-            logits = model(x).logits
+            logits = forward_fn(model, x)
             if stats is not None:
                 stats.forward_times.append(time.perf_counter() - t_fwd)
 

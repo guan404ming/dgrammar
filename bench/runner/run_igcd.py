@@ -27,6 +27,7 @@ from constrained_diffusion.constrain_utils import (
 )
 from constrained_diffusion.eval.dllm.dataset import load_dataset
 from constrained_diffusion.eval.dllm.model import load_model
+import jsb_dataset  # noqa: F401 - registers jsb_* datasets
 from rustformlang.cfg import CFG, is_intersection_empty_threaded
 
 
@@ -286,26 +287,33 @@ def main():
     orig_lex_map = None
 
     for i, instance in enumerate(instances):
-        if lang is None or dataset.different_grammar_per_instance:
-            lang, lex_map, subtokens = instance.language_lex_subtokens()
-            orig_lex_map = lex_map.copy()
-            lang = lang.concatenate(CFG.from_text("S -> lexFence | $", "S"))
-            if instance.strip_chars() is not None and "\n" not in instance.strip_chars():
-                lex_map["lexFence"] = r"\n?```"
-            else:
-                lex_map["lexFence"] = "```"
-            orig_lex_map["lexFence"] = lex_map["lexFence"]
-            lang = lang.to_normal_form()
-            lex_map = compile_lex_map(lex_map, subtokens=subtokens)
-            additional_stuff = None
-            prelex = instance.prelex()
+        try:
+            if lang is None or dataset.different_grammar_per_instance:
+                lang, lex_map, subtokens = instance.language_lex_subtokens()
+                orig_lex_map = lex_map.copy()
+                lang = lang.concatenate(CFG.from_text("S -> lexFence | $", "S"))
+                if instance.strip_chars() is not None and "\n" not in instance.strip_chars():
+                    lex_map["lexFence"] = r"\n?```"
+                else:
+                    lex_map["lexFence"] = "```"
+                orig_lex_map["lexFence"] = lex_map["lexFence"]
+                lang = lang.to_normal_form()
+                lex_map = compile_lex_map(lex_map, subtokens=subtokens)
+                additional_stuff = None
+                prelex = instance.prelex()
 
-        if additional_stuff is None:
-            additional_stuff = preprocessed_generate_stuff(
-                tokenizer, lang, lex_map,
-                prelex=prelex, subtokens=subtokens,
-                strip_chars=instance.strip_chars(),
-            )
+            if additional_stuff is None:
+                additional_stuff = preprocessed_generate_stuff(
+                    tokenizer, lang, lex_map,
+                    prelex=prelex, subtokens=subtokens,
+                    strip_chars=instance.strip_chars(),
+                )
+        except (Exception, BaseException) as e:
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            print(f"  Skipping {instance.instance_id()}: CFG compile failed ({type(e).__name__}: {e})")
+            lang = None  # force next instance to recompile
+            continue
 
         prompt_ids, prompt_len, suffix_str, start_line, prompt_raw = (
             eval_model.prepare_prompt(instance, tokenizer, model, trace=False)

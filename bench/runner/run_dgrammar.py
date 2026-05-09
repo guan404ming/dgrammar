@@ -13,7 +13,10 @@ import torch
 from constrained_diffusion.eval.dllm.dataset import load_dataset
 from constrained_diffusion.eval.dllm.model import load_model
 import jsb_dataset  # noqa: F401 - registers jsb_* datasets
-from dgrammar import TimingStats, TokenChecker, autocomplete_greedy, generate
+from dgrammar import (
+    TimingStats, TokenChecker, autocomplete_greedy, generate, build_cfg_checker,
+)
+from dgrammar.generate import autocomplete_ar
 
 
 def main():
@@ -25,15 +28,50 @@ def main():
     block_ar = int(sys.argv[6]) if len(sys.argv) > 6 else 1
     max_resamples = int(sys.argv[7]) if len(sys.argv) > 7 else 100
     out_rel = sys.argv[8]  # relative path under results/, set by modal_bench
+    max_batch_size = int(sys.argv[9]) if len(sys.argv) > 9 else 8
+    async_mask = bool(int(sys.argv[10])) if len(sys.argv) > 10 else True
+    ac_enabled = bool(int(sys.argv[11])) if len(sys.argv) > 11 else True
+    model_name = sys.argv[12] if len(sys.argv) > 12 else "GSAI-ML/LLaDA-8B-Instruct"
+    ac_mode = sys.argv[13] if len(sys.argv) > 13 else "greedy"  # "greedy" | "ar"
 
     output_file = f"results/{out_rel}"
 
     dataset = load_dataset(dataset_name)
-    eval_model = load_model("GSAI-ML/LLaDA-8B-Instruct")
+    eval_model = load_model(model_name)
     torch.manual_seed(seed)
 
     tokenizer = eval_model.tokenizer("cuda")
     model = eval_model.model("cuda")
+
+    is_dream = "dream" in model_name.lower() or "diffucoder" in model_name.lower()
+    if is_dream:
+        gc = model.generation_config
+        mc = model.config
+        mask_id_val = (
+            getattr(gc, "mask_token_id", None)
+            or getattr(mc, "mask_token_id", None)
+            or tokenizer.mask_token_id
+        )
+        eos_id_val = (
+            getattr(gc, "eos_token_id", None)
+            or tokenizer.eos_token_id
+        )
+        if isinstance(eos_id_val, (list, tuple)):
+            eos_id_val = eos_id_val[0]
+        mask_id_val = int(mask_id_val)
+        eos_id_val = int(eos_id_val)
+        eot_id_val = eos_id_val
+        print(f"[Dream] mask_token_id={mask_id_val}, eos_token_id={eos_id_val}, "
+              f"tokenizer.mask_token={tokenizer.mask_token!r}, eos_token={tokenizer.eos_token!r}")
+        def forward_fn(m, xx):
+            import torch as _t
+            logits = m(xx, "full", None).logits
+            return _t.cat([logits[:, :1], logits[:, :-1]], dim=1)
+    else:
+        mask_id_val = 126336
+        eos_id_val = 126081
+        eot_id_val = 126348
+        forward_fn = None  # dgrammar default
 
     all_instances = sorted(dataset, key=lambda x: x.instance_id())
     instances = all_instances[offset:offset + limit]
@@ -43,23 +81,44 @@ def main():
     cached_checker = None
     stats = TimingStats()
 
+    # Detect CFG-only datasets (cpp/smiles): instances expose
+    # language_lex_subtokens() instead of data["schema"].
+    is_cfg_dataset = dataset_name.startswith("THUDM/") or dataset_name in (
+        "smiles", "zai-org/humaneval-x/cpp",
+    )
+
     for i, instance in enumerate(instances):
-        schema_str = instance.data.get("schema", "")
-        if not schema_str:
-            print(f"  Skipping {instance.instance_id()}: no schema")
-            continue
+        if is_cfg_dataset:
+            try:
+                if cached_checker is None or dataset.different_grammar_per_instance:
+                    cached_checker = build_cfg_checker(
+                        instance, tokenizer, vocab_size=len(tokenizer)
+                    )
+                checker = cached_checker.clone()
+            except (Exception, BaseException) as e:
+                if isinstance(e, KeyboardInterrupt):
+                    raise
+                print(f"  Skipping {instance.instance_id()}: CFG compile failed ({type(e).__name__}: {e})")
+                cached_checker = None
+                continue
+        else:
+            schema_str = instance.data.get("schema", "")
+            if not schema_str:
+                print(f"  Skipping {instance.instance_id()}: no schema")
+                continue
+            try:
+                if cached_checker is None or dataset.different_grammar_per_instance:
+                    cached_checker = TokenChecker(schema_str, model_name=model_name)
+                checker = cached_checker.clone()
+            except Exception as e:
+                print(f"  Skipping {instance.instance_id()}: {e}")
+                continue
 
-        try:
-            if cached_checker is None or dataset.different_grammar_per_instance:
-                cached_checker = TokenChecker(schema_str)
-            checker = cached_checker.clone()
-        except Exception as e:
-            print(f"  Skipping {instance.instance_id()}: {e}")
-            continue
-
-        prompt_ids, prompt_len, suffix_str, start_line, prompt_raw = (
-            eval_model.prepare_prompt(instance, tokenizer, model, trace=False)
-        )
+        _pp = eval_model.prepare_prompt(instance, tokenizer, model, trace=False)
+        if len(_pp) == 6:
+            prompt_ids, _attn_mask, prompt_len, suffix_str, start_line, prompt_raw = _pp
+        else:
+            prompt_ids, prompt_len, suffix_str, start_line, prompt_raw = _pp
 
         stats.reset()
         torch.manual_seed(seed)
@@ -80,7 +139,9 @@ def main():
             model, prompt_ids, checker=checker,
             prompt_len=prompt_len, steps=steps, gen_length=256,
             block_length=bl, temperature=0.2, remasking="low_confidence",
-            max_batch_size=8, max_resamples=max_resamples,
+            max_batch_size=max_batch_size, max_resamples=max_resamples,
+            async_mask=async_mask, forward_fn=forward_fn,
+            mask_id=mask_id_val, eos_id=eos_id_val, eot_id=eot_id_val,
             stats=stats,
         ):
             total_violations = violations
@@ -88,11 +149,8 @@ def main():
             total_grammar_checks = grammar_checks
 
         # Autocompletion fallback: if generation is incomplete, greedily complete
-        if out is not None and not valid:
+        if ac_enabled and out is not None and not valid:
             gen_start = prompt_ids.shape[1]
-            mask_id_val = 126336
-            eos_id_val = 126081
-            eot_id_val = 126348
 
             # Use a fresh checker to find the grammar frontier: feed the
             # valid prefix (everything before the first mask) and see where
@@ -119,9 +177,11 @@ def main():
             for j in range(frontier, out.shape[1]):
                 out[0, j] = mask_id_val
 
-            out, ac_steps, ac_mask_ms, ac_fwd_ms = autocomplete_greedy(
+            ac_fn = autocomplete_ar if ac_mode == "ar" else autocomplete_greedy
+            out, ac_steps, ac_mask_ms, ac_fwd_ms = ac_fn(
                 model, out, fresh, frontier, gen_start,
                 mask_id=mask_id_val, eos_id=eos_id_val,
+                forward_fn=forward_fn,
             )
             # Re-check validity after autocompletion
             gen_ids_ac = out[0, gen_start:].tolist()

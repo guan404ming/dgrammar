@@ -128,17 +128,17 @@ def main():
     offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     instance_timeout = int(sys.argv[6]) if len(sys.argv) > 6 else 120
     out_rel = sys.argv[7]  # relative path under results/, set by modal_bench
+    model_name = sys.argv[8] if len(sys.argv) > 8 else "GSAI-ML/LLaDA-8B-Instruct"
 
     output_file = f"results/{out_rel}"
 
     # Patch Checker before any imports that use it
     patch_checker_class()
 
-    # Import LAVE's generate function
-    from constrained_diffusion.eval.dllm.models.llada.generate_our import generate as lave_generate
+    is_dream = "dream" in model_name.lower() or "diffucoder" in model_name.lower()
 
     dataset = load_dataset(dataset_name)
-    eval_model = load_model("GSAI-ML/LLaDA-8B-Instruct")
+    eval_model = load_model(model_name)
     torch.manual_seed(seed)
 
     tokenizer = eval_model.tokenizer("cuda")
@@ -149,6 +149,9 @@ def main():
     instances = all_instances[offset:offset + limit]
     print(f"LAVE timed: {len(instances)} instances, seed={seed}, T={steps}")
 
+    if not is_dream:
+        from constrained_diffusion.eval.dllm.models.llada.generate_our import generate as lave_generate
+
     for i, instance in enumerate(instances):
         # Get the per-instance lark grammar (LAVE uses lark, not JSON schema)
         try:
@@ -157,9 +160,13 @@ def main():
             print(f"  Skipping {instance.instance_id()}: {e}")
             continue
 
-        prompt_ids, input_len, suffix, start_line, prompt_raw = (
-            eval_model.prepare_prompt(instance, tokenizer, model, trace=False)
-        )
+        if is_dream:
+            prompt_pp = eval_model.prepare_prompt(instance, tokenizer, model, trace=False)
+            prompt_ids, attn_mask, input_len, suffix, start_line, prompt_raw = prompt_pp
+        else:
+            prompt_ids, input_len, suffix, start_line, prompt_raw = (
+                eval_model.prepare_prompt(instance, tokenizer, model, trace=False)
+            )
 
         STATS.reset()
         torch.manual_seed(seed)
@@ -168,24 +175,36 @@ def main():
         signal.signal(signal.SIGALRM, _timeout_handler)
         signal.alarm(instance_timeout)
         try:
-            out, total_retry_num, gen_start_time = lave_generate(
-                model,
-                tokenizer,
-                prompt_ids,
-                input_len=input_len,
-                grammar=cfg_lang,
-                steps=steps,
-                gen_length=256,
-                block_length=32,
-                temperature=0.2,
-                remasking="low_confidence",
-                trace=False,
-                change_logits=False,
-                top_k_per_mask=5,
-                top_n_beam=30,
-                random_n_beam=20,
-                max_retry_num_total=1000,
-            )
+            if is_dream:
+                # generate_ours returns (prompt_raw, code, code_raw, extracted, not_timeout, elapsed, total_retry_num)
+                _, _dream_code, _, _dream_extracted, _not_to, _elap, total_retry_num = eval_model.generate_ours(
+                    instance, model, tokenizer,
+                    steps=steps, gen_length=256, block_length=32,
+                    temperature=0.2, timeout=instance_timeout, trace=False,
+                    change_logits=False, alg="entropy",
+                    top_k_per_mask=5, top_n_beam=30, random_n_beam=20,
+                    max_retry_num_total=1000,
+                )
+                out = None  # signal to downstream we already have extracted
+            else:
+                out, total_retry_num, gen_start_time = lave_generate(
+                    model,
+                    tokenizer,
+                    prompt_ids,
+                    input_len=input_len,
+                    grammar=cfg_lang,
+                    steps=steps,
+                    gen_length=256,
+                    block_length=32,
+                    temperature=0.2,
+                    remasking="low_confidence",
+                    trace=False,
+                    change_logits=False,
+                    top_k_per_mask=5,
+                    top_n_beam=30,
+                    random_n_beam=20,
+                    max_retry_num_total=1000,
+                )
         except InstanceTimeout:
             signal.alarm(0)
             elapsed = time.monotonic() - start_time
@@ -212,7 +231,20 @@ def main():
         elapsed = time.monotonic() - start_time
         STATS.retry_count = total_retry_num
 
-        if out is None:
+        if is_dream:
+            code = _dream_code if _dream_code is not None else "TIMEOUT"
+            extracted = _dream_extracted
+            # Validate via jsonschema if dataset has a schema
+            valid = False
+            if extracted:
+                try:
+                    import jsonschema
+                    schema = json.loads(instance.data.get("schema", "{}"))
+                    jsonschema.validate(json.loads(extracted), schema)
+                    valid = True
+                except Exception:
+                    valid = False
+        elif out is None:
             code = "TIMEOUT"
             extracted = None
             valid = False

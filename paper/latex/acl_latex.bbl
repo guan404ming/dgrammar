@@ -1,0 +1,116 @@
+\begin{thebibliography}{17}
+\providecommand{\natexlab}[1]{#1}
+
+\bibitem[{Chen et~al.(2025)Chen, Fang, Ma, Yu, and Wang}]{chen2025dparallel}
+Zigeng Chen, Gongfan Fang, Xinyin Ma, Ruonan Yu, and Xinchao Wang. 2025.
+\newblock {dParallel}: Learnable parallel decoding for {dLLM}s.
+\newblock \emph{arXiv preprint arXiv:2509.26488}.
+
+\bibitem[{Chen et~al.(2026)Chen, Fang, Ma, Yu, and Wang}]{dmax2025}
+Zigeng Chen, Gongfan Fang, Xinyin Ma, Ruonan Yu, and Xinchao Wang. 2026.
+\newblock {DMax}: Aggressive parallel decoding for {dLLM}s.
+\newblock \emph{arXiv preprint arXiv:2604.08302}.
+
+\bibitem[{Dong et~al.(2024)Dong, Ruan, Cai, Lai, Xu, Zhao, and
+  Chen}]{xgrammar2024}
+Yixin Dong, Charlie~F. Ruan, Yaxing Cai, Ruihang Lai, Ziyi Xu, Yilong Zhao, and
+  Tianqi Chen. 2024.
+\newblock {XGrammar}: Flexible and efficient structured generation engine for
+  large language models.
+\newblock \emph{arXiv preprint arXiv:2411.15100}.
+
+\bibitem[{Geng et~al.(2025)Geng, Cooper, Moskal, Jenkins, Berman, Ranchin,
+  West, Horvitz, and Nori}]{jsonschemabench2025}
+Saibo Geng, Hudson Cooper, Micha{\l} Moskal, Samuel Jenkins, Julian Berman,
+  Nathan Ranchin, Robert West, Eric Horvitz, and Harsha Nori. 2025.
+\newblock Generating structured outputs from language models: Benchmark and
+  studies.
+\newblock \emph{arXiv preprint arXiv:2501.10868}.
+
+\bibitem[{Geng et~al.(2023)Geng, Josifoski, Peyrard, and West}]{geng2023gcd}
+Saibo Geng, Martin Josifoski, Maxime Peyrard, and Robert West. 2023.
+\newblock Grammar-constrained decoding for structured {NLP} tasks without
+  finetuning.
+\newblock In \emph{Proceedings of the 2023 Conference on Empirical Methods in
+  Natural Language Processing (EMNLP)}.
+
+\bibitem[{Li et~al.(2026)Li, Jiang, Cheng, Fu, Cai, Huang, Ye, Chen, and
+  Van~Hentenryck}]{pvf2026}
+Miao Li, Hanyang Jiang, Sikai Cheng, Hengyu Fu, Yuhang Cai, Baihe Huang,
+  Tinghan Ye, Xuanzhou Chen, and Pascal Van~Hentenryck. 2026.
+\newblock Plan, verify and fill: A structured parallel decoding approach for
+  diffusion language models.
+\newblock \emph{arXiv preprint arXiv:2601.12247}.
+
+\bibitem[{{Microsoft}(2024)}]{llguidance}
+{Microsoft}. 2024.
+\newblock llguidance: Super-fast constrained decoding.
+\newblock \url{https://github.com/guidance-ai/llguidance}.
+
+\bibitem[{M{\"u}ndler et~al.(2025)M{\"u}ndler, Dekoninck, and
+  Vechev}]{mundler2025}
+Niels M{\"u}ndler, Jasper Dekoninck, and Martin Vechev. 2025.
+\newblock Constrained decoding of diffusion llms with context-free grammars.
+\newblock \emph{arXiv preprint arXiv:2508.10111}.
+
+\bibitem[{Nie et~al.(2025)Nie, Zhu, You, Zhang, Ou, Hu, Zhou, Lin, Wen, and
+  Li}]{llada2025}
+Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang, Jingyang Ou, Jun Hu, Jun Zhou,
+  Yankai Lin, Ji-Rong Wen, and Chongxuan Li. 2025.
+\newblock Large language diffusion models.
+\newblock \emph{arXiv preprint arXiv:2502.09992}.
+
+\bibitem[{Park et~al.(2024)Park, Wang, Berg-Kirkpatrick, Polikarpova, and
+  D'Antoni}]{park2024gad}
+Kanghee Park, Jiayu Wang, Taylor Berg-Kirkpatrick, Nadia Polikarpova, and Loris
+  D'Antoni. 2024.
+\newblock Grammar-aligned decoding.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}.
+
+\bibitem[{Park et~al.(2025)Park, Zhou, and D'Antoni}]{park2025efgcd}
+Kanghee Park, Timothy Zhou, and Loris D'Antoni. 2025.
+\newblock Flexible and efficient grammar-constrained decoding.
+\newblock In \emph{Proceedings of the 42nd International Conference on Machine
+  Learning (ICML)}.
+
+\bibitem[{Reddy et~al.(2026)Reddy, Walker, Ide, and Bedi}]{reddy2026dccd}
+Avinash Reddy, Thayne~T. Walker, James~S. Ide, and Amrit~Singh Bedi. 2026.
+\newblock Draft-conditioned constrained decoding for structured generation in
+  {LLM}s.
+\newblock \emph{arXiv preprint arXiv:2603.03305}.
+
+\bibitem[{Suresh et~al.(2025)Suresh, Banerjee, Ugare, Misailovic, and
+  Singh}]{dingo2025}
+Tarun Suresh, Debangshu Banerjee, Shubham Ugare, Sasa Misailovic, and Gagandeep
+  Singh. 2025.
+\newblock {DINGO}: Constrained inference for diffusion {LLM}s.
+\newblock \emph{arXiv preprint arXiv:2505.23061}.
+
+\bibitem[{Willard and Louf(2023)}]{willard2023outlines}
+Brandon~T. Willard and R{\'e}mi Louf. 2023.
+\newblock Efficient guided generation for large language models.
+\newblock \emph{arXiv preprint arXiv:2307.09702}.
+
+\bibitem[{Wu et~al.(2025)Wu, Zhang, Xue, Liu, Diao, Zhu, Luo, Han, and
+  Xie}]{fastdllm2025}
+Chengyue Wu, Hao Zhang, Shuchen Xue, Zhijian Liu, Shizhe Diao, Ligeng Zhu, Ping
+  Luo, Song Han, and Enze Xie. 2025.
+\newblock Fast-{dLLM}: Training-free acceleration of diffusion {LLM} by
+  enabling kv cache and parallel decoding.
+\newblock \emph{arXiv preprint arXiv:2505.22618}.
+
+\bibitem[{Ye et~al.(2025)Ye, Gao, Gong, Zheng, Jiang, Li, and Kong}]{dream2025}
+Jiacheng Ye, Jiahui Gao, Shansan Gong, Lin Zheng, Xin Jiang, Zhenguo Li, and
+  Lingpeng Kong. 2025.
+\newblock Dream 7b: Diffusion large language models.
+\newblock \emph{arXiv preprint}.
+
+\bibitem[{Zhang et~al.(2026)Zhang, Li, Liu, Li, Jia, Li, and Li}]{lave2025}
+Yitong Zhang, Yongmin Li, Yuetong Liu, Jia Li, Xiaoran Jia, Zherui Li, and
+  Ge~Li. 2026.
+\newblock Lookahead-then-verify: Reliable constrained decoding for diffusion
+  {LLM}s under context-free grammars.
+\newblock \emph{arXiv preprint arXiv:2602.00612}.
+
+\end{thebibliography}

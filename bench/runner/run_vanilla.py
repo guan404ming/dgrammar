@@ -40,11 +40,12 @@ def main():
     steps = int(sys.argv[4]) if len(sys.argv) > 4 else 128
     offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     out_rel = sys.argv[6]  # relative path under results/, set by modal_bench
+    model_name = sys.argv[7] if len(sys.argv) > 7 else "GSAI-ML/LLaDA-8B-Instruct"
 
     output_file = f"results/{out_rel}"
 
     dataset = load_dataset(dataset_name)
-    eval_model = load_model("GSAI-ML/LLaDA-8B-Instruct")
+    eval_model = load_model(model_name)
     torch.manual_seed(seed)
 
     tokenizer = eval_model.tokenizer("cuda")
@@ -52,11 +53,13 @@ def main():
 
     all_instances = sorted(dataset, key=lambda x: x.instance_id())
     instances = all_instances[offset:offset + limit]
-    print(f"Vanilla LLaDA timed: {len(instances)} instances, seed={seed}, T={steps}")
+    print(f"Vanilla {model_name}: {len(instances)} instances, seed={seed}, T={steps}")
+
+    is_json = dataset_name in ("jsonschema",) or dataset_name.startswith("jsb_")
 
     for i, instance in enumerate(instances):
-        schema_str = instance.data.get("schema", "")
-        if not schema_str:
+        schema_str = instance.data.get("schema", "") if hasattr(instance, "data") else ""
+        if is_json and not schema_str:
             print(f"  Skipping {instance.instance_id()}: no schema")
             continue
 
@@ -64,7 +67,7 @@ def main():
         start_time = time.monotonic()
 
         try:
-            _, code, extracted, _ = eval_model.generate_unconstrained(
+            _, code, extracted, *_ = eval_model.generate_unconstrained(
                 instance, model, tokenizer,
                 steps=steps, gen_length=256, temperature=0.2, trace=False,
             )
@@ -74,8 +77,12 @@ def main():
 
         elapsed = time.monotonic() - start_time
 
-        syntax_ok, schema_ok = validate_json(extracted, schema_str)
-        valid = schema_ok
+        if is_json:
+            syntax_ok, schema_ok = validate_json(extracted, schema_str)
+            valid = schema_ok
+        else:
+            # Non-JSON (cpp/smiles): correctness scored offline via check_all.py.
+            syntax_ok, valid = False, False
 
         result = {
             "instance_id": instance.instance_id(),

@@ -60,7 +60,11 @@ _dgrammar_image = (
     .add_local_file("../pyproject.toml", "/root/pyproject.toml")
 )
 
-_igcd_image = _cd_image.add_local_file("runner/run_igcd.py", "/root/run_igcd.py")
+_igcd_image = (
+    _cd_image
+    .add_local_file("runner/run_igcd.py", "/root/run_igcd.py")
+    .add_local_file("jsb_dataset.py", "/root/jsb_dataset.py")
+)
 
 _vanilla_image = (
     _cd_image
@@ -139,18 +143,26 @@ def _chunk_fname(method: str, run_id: str, tag: str, dataset: str,
 
 @app.function(image=_dgrammar_image, gpu="B200", **_COMMON_FN_KW)
 def run_dgrammar(seed: int, limit: int, offset: int, steps: int,
-                 dataset: str, block_ar: int, max_resamples: int, run_id: str):
+                 dataset: str, block_ar: int, max_resamples: int,
+                 max_batch: int, async_mask: int, ac_enabled: int, run_id: str):
     parts = []
     if not block_ar:
         parts.append("fullpar")
     if max_resamples != 100:
         parts.append(f"r{max_resamples}")
+    if max_batch != 8:
+        parts.append(f"b{max_batch}")
+    if not async_mask:
+        parts.append("noasync")
+    if not ac_enabled:
+        parts.append("noac")
     tag = "_".join(parts)
     fname = _chunk_fname("dgrammar", run_id, tag, dataset, seed, steps, offset)
     return _run_and_save(
         "run_dgrammar.py",
         [str(seed), str(limit), dataset, str(steps), str(offset),
-         str(block_ar), str(max_resamples), fname],
+         str(block_ar), str(max_resamples), fname,
+         str(max_batch), str(async_mask), str(ac_enabled)],
         "/root:/root/constrained-diffusion",
         fname,
     )
@@ -158,23 +170,28 @@ def run_dgrammar(seed: int, limit: int, offset: int, steps: int,
 
 @app.function(image=_lave_image, gpu="B200", **_COMMON_FN_KW)
 def run_lave(seed: int, limit: int, offset: int, steps: int,
-             dataset: str, instance_timeout: int, run_id: str):
-    fname = _chunk_fname("lave", run_id, "", dataset, seed, steps, offset)
+             dataset: str, instance_timeout: int, model_name: str, run_id: str):
+    tag = ""
+    short = model_name.split("/")[-1].lower().replace("-instruct", "")
+    if "llada" not in short:
+        tag = short
+    fname = _chunk_fname("lave", run_id, tag, dataset, seed, steps, offset)
     return _run_and_save(
         "run_lave.py",
         [str(seed), str(limit), dataset, str(steps), str(offset),
-         str(instance_timeout), fname],
+         str(instance_timeout), fname, model_name],
         "/root:/root/CD4dLLM",
         fname,
     )
 
 
-@app.function(image=_igcd_image, gpu="A100", **_COMMON_FN_KW)
-def run_igcd(seed: int, limit: int, offset: int, steps: int, run_id: str):
-    fname = _chunk_fname("igcd", run_id, "", "jsonschema", seed, steps, offset)
+@app.function(image=_igcd_image, gpu="B200", **_COMMON_FN_KW)
+def run_igcd(seed: int, limit: int, offset: int, steps: int,
+             dataset: str, run_id: str):
+    fname = _chunk_fname("igcd", run_id, "", dataset, seed, steps, offset)
     return _run_and_save(
         "run_igcd.py",
-        [str(seed), str(limit), "jsonschema", str(steps), str(offset), fname],
+        [str(seed), str(limit), dataset, str(steps), str(offset), fname],
         "/root:/root/constrained-diffusion",
         fname,
     )
@@ -182,11 +199,13 @@ def run_igcd(seed: int, limit: int, offset: int, steps: int, run_id: str):
 
 @app.function(image=_vanilla_image, gpu="B200", **_COMMON_FN_KW)
 def run_vanilla(seed: int, limit: int, offset: int, steps: int,
-                dataset: str, run_id: str):
-    fname = _chunk_fname("vanilla", run_id, "", dataset, seed, steps, offset)
+                dataset: str, model_name: str, run_id: str):
+    short = model_name.split("/")[-1].lower().replace("-instruct", "")
+    tag = "" if "llada" in short else short
+    fname = _chunk_fname("vanilla", run_id, tag, dataset, seed, steps, offset)
     return _run_and_save(
         "run_vanilla.py",
-        [str(seed), str(limit), dataset, str(steps), str(offset), fname],
+        [str(seed), str(limit), dataset, str(steps), str(offset), fname, model_name],
         "/root:/root/constrained-diffusion",
         fname,
     )
@@ -203,6 +222,10 @@ def main(
     block_ar: int = 1,
     max_resamples: int = 100,
     instance_timeout: int = 120,
+    max_batch: int = 8,
+    async_mask: int = 1,
+    ac_enabled: int = 1,
+    model_name: str = "GSAI-ML/LLaDA-8B-Instruct",
 ):
     from datetime import datetime
 
@@ -220,14 +243,15 @@ def main(
         print(f"  Chunk {i}: offset={offset}, limit={limit}")
         if method == "dgrammar":
             h = run_dgrammar.spawn(seed, limit, offset, steps, dataset,
-                                    block_ar, max_resamples, run_id)
+                                    block_ar, max_resamples,
+                                    max_batch, async_mask, ac_enabled, run_id)
         elif method == "lave":
             h = run_lave.spawn(seed, limit, offset, steps, dataset,
-                                instance_timeout, run_id)
+                                instance_timeout, model_name, run_id)
         elif method == "igcd":
-            h = run_igcd.spawn(seed, limit, offset, steps, run_id)
+            h = run_igcd.spawn(seed, limit, offset, steps, dataset, run_id)
         elif method == "vanilla":
-            h = run_vanilla.spawn(seed, limit, offset, steps, dataset, run_id)
+            h = run_vanilla.spawn(seed, limit, offset, steps, dataset, model_name, run_id)
         else:
             raise ValueError(f"Unknown method: {method} (choose dgrammar/lave/igcd/vanilla)")
         handles.append(h)
