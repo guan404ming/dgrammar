@@ -446,7 +446,6 @@ SMILES & \textsc{Dgr.} & \textbf{99.4} & 2.4 \\
 \paragraph{Cross-grammar transfer (SMILES).} To test that Dgrammar's algorithm is not specific to JSON-Schema, we plug in a CFG-mode checker (rustformlang-backed CFG/DFA intersection-emptiness) and run on \texttt{eth-sri/smiles-eval} ($n{=}167$, Table~\ref{tab:cross}). Dgrammar reaches $100.0$\% syn@1 on LLaDA-8B ($+34.7$ pp over \textsc{Vanilla}, also above LAVE's $98.7$\%) and $99.4$\% on Dream-7B (matching LAVE), confirming the algorithm transfers to non-JSON grammars. Functional@1 stays at $2$--$4$\,\% across all methods because the SMILES grammar accepts any single atom as a valid \texttt{Line}, and exact-match against a stereoisomeric reference is dominated by the model's chemistry knowledge rather than constraint enforcement; \citet{lave2025} likewise reports $0$\% functional on this split. The full Dgrammar pipeline transfers across backbones via only a per-model adapter (forward signature, mask/EOS token IDs, tokenizer); see Table~\ref{tab:cross}.
 
 \begin{table}[!t]
-\small
 \centering
 \begin{tabular}{lr}
 \toprule

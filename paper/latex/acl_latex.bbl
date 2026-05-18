@@ -23,8 +23,8 @@ Yixin Dong, Charlie~F. Ruan, Yaxing Cai, Ruihang Lai, Ziyi Xu, Yilong Zhao, and
   West, Horvitz, and Nori}]{jsonschemabench2025}
 Saibo Geng, Hudson Cooper, Micha{\l} Moskal, Samuel Jenkins, Julian Berman,
   Nathan Ranchin, Robert West, Eric Horvitz, and Harsha Nori. 2025.
-\newblock Generating structured outputs from language models: Benchmark and
-  studies.
+\newblock {JSONSchemaBench}: A rigorous benchmark of structured outputs for
+  language models.
 \newblock \emph{arXiv preprint arXiv:2501.10868}.
 
 \bibitem[{Geng et~al.(2023)Geng, Josifoski, Peyrard, and West}]{geng2023gcd}
@@ -100,11 +100,12 @@ Chengyue Wu, Hao Zhang, Shuchen Xue, Zhijian Liu, Shizhe Diao, Ligeng Zhu, Ping
   enabling kv cache and parallel decoding.
 \newblock \emph{arXiv preprint arXiv:2505.22618}.
 
-\bibitem[{Ye et~al.(2025)Ye, Gao, Gong, Zheng, Jiang, Li, and Kong}]{dream2025}
-Jiacheng Ye, Jiahui Gao, Shansan Gong, Lin Zheng, Xin Jiang, Zhenguo Li, and
-  Lingpeng Kong. 2025.
+\bibitem[{Ye et~al.(2025)Ye, Xie, Zheng, Gao, Wu, Jiang, Li, and
+  Kong}]{dream2025}
+Jiacheng Ye, Zhihui Xie, Lin Zheng, Jiahui Gao, Zirui Wu, Xin Jiang, Zhenguo
+  Li, and Lingpeng Kong. 2025.
 \newblock Dream 7b: Diffusion large language models.
-\newblock \emph{arXiv preprint}.
+\newblock \emph{arXiv preprint arXiv:2508.15487}.
 
 \bibitem[{Zhang et~al.(2026)Zhang, Li, Liu, Li, Jia, Li, and Li}]{lave2025}
 Yitong Zhang, Yongmin Li, Yuetong Liu, Jia Li, Xiaoran Jia, Zherui Li, and
