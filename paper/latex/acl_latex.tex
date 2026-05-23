@@ -240,17 +240,17 @@ In summary, Dgrammar applies grammar bias inside the same block-context logits; 
 \midrule
 easy   & Vanilla       & 558 & 64.2          & 2.58          & 2.48          & 3.23           & 3.38           & 4.02            & 0 \\
        & LAVE          & 558 & 82.3          & 24.95         & 2.74          & 120.00         & 120.00         & 120.00          & 83 \\
-       & IG-CD$^\dagger$ & 449 & 57.7        & 2.58          & 2.31          & 3.97           & 5.12           & 9.60            & 0 \\
+       & IG-CD$^\dagger$ & 449 & 79.1        & 2.58          & 2.31          & 3.97           & 5.12           & 9.60            & 0 \\
        & \textsc{Dgr.} & 558 & \textbf{94.1} & \textbf{3.14} & \textbf{2.71}  & \textbf{4.48}  & \textbf{5.36}  & \textbf{11.17}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 medium & Vanilla       & 511 & 51.3          & 3.91          & 3.67          & 5.14           & 5.61           & 7.59            & 0 \\
        & LAVE          & 511 & 76.3          & 30.56         & 12.32         & 120.00         & 120.00         & 120.00          & 65 \\
-       & IG-CD$^\dagger$ & 383 & 46.5        & 9.65          & 3.91          & 17.97          & 44.55          & 106.89          & 4 \\
+       & IG-CD$^\dagger$ & 383 & 67.4        & 9.65          & 3.91          & 17.97          & 44.55          & 106.89          & 4 \\
        & \textsc{Dgr.} & 511 & \textbf{84.5} & \textbf{5.24} & \textbf{4.39}  & \textbf{8.56}  & \textbf{12.76} & \textbf{15.54}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 hard   & Vanilla       & 269 & 24.9          & 9.30          & 7.52          & 15.33          & 17.69          & 25.45           & 0 \\
        & LAVE          & 269 & 53.2          & 45.01         & 22.42         & 120.00         & 120.00         & 120.00          & 56 \\
-       & IG-CD$^\dagger$ & 245 & 26.9        & 39.97         & 14.82         & 120.00         & 120.00         & 120.19          & 50 \\
+       & IG-CD$^\dagger$ & 245 & 38.8        & 39.97         & 14.82         & 120.00         & 120.00         & 120.19          & 50 \\
        & \textsc{Dgr.} & 269 & \textbf{54.3} & \textbf{24.17}& \textbf{19.46} & \textbf{46.50} & \textbf{54.44} & \textbf{86.21}  & \textbf{0} \\
 \midrule
 \multicolumn{10}{c}{\textit{Dream-7B}} \\
@@ -331,7 +331,7 @@ Second, if the diffusion loop exits before the matcher reaches an accepting stat
 
 \paragraph{Metric.} We report \emph{schema@1}, the success of \texttt{jsonschema.validate} on the parsed output. This is stricter than the runner-internal grammar flag, which only checks the matcher's accepting state and can be inflated by truncated outputs.
 
-\paragraph{Main results.} Table~\ref{tab:main} compares the systems. On LLaDA, \textsc{Vanilla} reaches only 51.3\% schema@1, while LAVE improves validity to 76.3\% at $7.8\times$ higher mean latency and with 65/511 timeouts. Dgrammar raises schema@1 to 84.5\%, runs $5.8\times$ faster than LAVE on mean latency and $9.4\times$ faster on p95, and has zero timeouts. Its mean latency is only $1.3\times$ above \textsc{Vanilla}, indicating that grammar enforcement adds little cost relative to diffusion forward passes. ETH/IG-CD~\citep{mundler2025} is not instance-matched: its CFG pipeline rejects $22$--$35\%$ of each split (Table~\ref{tab:main}, $\dagger$), and even on the schemas it compiles it trails Dgrammar at every difficulty ($57.7$ vs.\ $94.1$, $46.5$ vs.\ $84.5$, $26.9$ vs.\ $54.3$ schema@1) with $50/245$ timeouts on hard; we discuss it and DINGO in Limitations.
+\paragraph{Main results.} Table~\ref{tab:main} compares the systems. On LLaDA, \textsc{Vanilla} reaches only 51.3\% schema@1, while LAVE improves validity to 76.3\% at $7.8\times$ higher mean latency and with 65/511 timeouts. Dgrammar raises schema@1 to 84.5\%, runs $5.8\times$ faster than LAVE on mean latency and $9.4\times$ faster on p95, and has zero timeouts. Its mean latency is only $1.3\times$ above \textsc{Vanilla}, indicating that grammar enforcement adds little cost relative to diffusion forward passes. ETH/IG-CD~\citep{mundler2025} is not instance-matched: its CFG pipeline rejects $22$--$35\%$ of each split (Table~\ref{tab:main}, $\dagger$), and even on the schemas it compiles it trails Dgrammar at every difficulty ($79.1$ vs.\ $94.1$, $67.4$ vs.\ $84.5$, $38.8$ vs.\ $54.3$ schema@1) with $50/245$ timeouts on hard; we discuss it and DINGO in Limitations.
 
 
 \subsection{Ablations and Failure Analysis}

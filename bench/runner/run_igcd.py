@@ -276,11 +276,13 @@ def main():
     offset = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     instance_timeout = int(sys.argv[6]) if len(sys.argv) > 6 else 120
     out_rel = sys.argv[7]  # relative path under results/, set by modal_bench
+    model_name = sys.argv[8] if len(sys.argv) > 8 else "GSAI-ML/LLaDA-8B-Instruct"
+    is_dream = "dream" in model_name.lower()
 
     output_file = f"results/{out_rel}"
 
     dataset = load_dataset(dataset_name)
-    eval_model = load_model("GSAI-ML/LLaDA-8B-Instruct")
+    eval_model = load_model(model_name)
 
     torch.manual_seed(seed)
 
@@ -324,6 +326,54 @@ def main():
                 raise
             print(f"  Skipping {instance.instance_id()}: CFG compile failed ({type(e).__name__}: {e})")
             lang = None  # force next instance to recompile
+            continue
+
+        # Dream uses the vendor's high-level constrained generate (different
+        # decoding + prompt prep than LLaDA); it carries its own stopit timeout.
+        if is_dream:
+            torch.manual_seed(seed)
+            start_time = time.monotonic()
+            try:
+                (_, _code, _, extracted, timed_out, resamples,
+                 _vc, completion_extracted, _act) = eval_model.generate_constrained(
+                    instance, model, tokenizer,
+                    steps=steps, gen_length=256, temperature=0.2,
+                    lang=lang, lex_map=lex_map, orig_lex_map=orig_lex_map,
+                    subtokens=subtokens, additional_stuff=additional_stuff,
+                    prelex=prelex, timeout=instance_timeout, trace=False,
+                )
+            except (Exception, BaseException) as e:
+                if isinstance(e, KeyboardInterrupt):
+                    raise
+                print(f"  [{i+1}/{len(instances)}] {instance.instance_id()}: ERROR {type(e).__name__}: {e}")
+                continue
+            elapsed = time.monotonic() - start_time
+            final_extracted = completion_extracted or extracted
+            valid = False
+            if not timed_out and final_extracted:
+                try:
+                    import jsonschema
+                    jsonschema.validate(json.loads(final_extracted),
+                                        json.loads(instance.data["schema"]))
+                    valid = True
+                except Exception:
+                    valid = False
+            result = {
+                "instance_id": instance.instance_id(),
+                "method": "igcd",
+                "valid": valid,
+                "extracted": extracted,
+                "autocompletion": completion_extracted,
+                "time_taken": elapsed,
+                "resamples": len(resamples) if resamples else 0,
+                "timing": {"timeout": bool(timed_out)},
+            }
+            Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_file, "a") as f:
+                print(json.dumps(result), flush=True, file=f)
+            print(f"  [{i+1}/{len(instances)}] {instance.instance_id()}: "
+                  f"valid={valid}, time={elapsed:.1f}s, timeout={bool(timed_out)}, "
+                  f"resamples={len(resamples) if resamples else 0}")
             continue
 
         prompt_ids, prompt_len, suffix_str, start_line, prompt_raw = (
@@ -425,10 +475,26 @@ def main():
         total_constraint_ms = timing["grammar_check_total_ms"] + timing["token_select_total_ms"]
         total_forward_ms = timing["forward_total_ms"]
 
+        # Schema@1 metric: validate the committed output (autocomplete fallback
+        # when the constrained pass was grammar-invalid) against the JSON schema,
+        # consistent with the other runners; `valid` from generate_timed is the
+        # method's stricter CFG-acceptance flag, retained as cfg_valid.
+        final_out = autocompletion or extracted
+        schema_valid = False
+        if final_out:
+            try:
+                import jsonschema
+                jsonschema.validate(json.loads(final_out),
+                                    json.loads(instance.data["schema"]))
+                schema_valid = True
+            except Exception:
+                schema_valid = False
+
         result = {
             "instance_id": instance.instance_id(),
             "method": "igcd",
-            "valid": valid,
+            "valid": schema_valid,
+            "cfg_valid": valid,
             "extracted": extracted,
             "autocompletion": autocompletion,
             "time_taken": elapsed,

@@ -187,12 +187,14 @@ def run_lave(seed: int, limit: int, offset: int, steps: int,
 
 @app.function(image=_igcd_image, gpu="B200", **_COMMON_FN_KW)
 def run_igcd(seed: int, limit: int, offset: int, steps: int,
-             dataset: str, instance_timeout: int, run_id: str):
-    fname = _chunk_fname("igcd", run_id, "", dataset, seed, steps, offset)
+             dataset: str, instance_timeout: int, model_name: str, run_id: str):
+    short = model_name.split("/")[-1].lower().replace("-instruct", "")
+    tag = "" if "llada" in short else short
+    fname = _chunk_fname("igcd", run_id, tag, dataset, seed, steps, offset)
     return _run_and_save(
         "run_igcd.py",
         [str(seed), str(limit), dataset, str(steps), str(offset),
-         str(instance_timeout), fname],
+         str(instance_timeout), fname, model_name],
         "/root:/root/constrained-diffusion",
         fname,
     )
@@ -251,7 +253,7 @@ def main(
                                 instance_timeout, model_name, run_id)
         elif method == "igcd":
             h = run_igcd.spawn(seed, limit, offset, steps, dataset,
-                               instance_timeout, run_id)
+                               instance_timeout, model_name, run_id)
         elif method == "vanilla":
             h = run_vanilla.spawn(seed, limit, offset, steps, dataset, model_name, run_id)
         else:
