@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex acl_latex"] 1779118618.38227 "acl_latex.aux" "acl_latex.bbl" "acl_latex" 1779118621.57048 0
+["bibtex acl_latex"] 1779528277.66776 "acl_latex.aux" "acl_latex.bbl" "acl_latex" 1779528280.85368 0
   "./acl_natbib.bst" 1778137941.62184 45186 3d1af46d62cc9172ef6e42b56c1cd613 ""
   "./custom.bib" 1779118546.48806 4813 eb5d79b8181eececfd3b20f35ead8677 ""
-  "acl_latex.aux" 1779118621.07505 25074 5cae66a13f4964c7137c1b48d0c4a069 "pdflatex"
+  "acl_latex.aux" 1779528280.36572 25964 170f86d80d9aaa4b7c56e93d2035ebfc "pdflatex"
   (generated)
   "acl_latex.bbl"
   "acl_latex.blg"
   (rewritten before read)
-["pdflatex"] 1779118618.5404 "acl_latex.tex" "acl_latex.pdf" "acl_latex" 1779118621.57096 0
+["pdflatex"] 1779528277.83159 "acl_latex.tex" "acl_latex.pdf" "acl_latex" 1779528280.85419 0
   "/Users/wchiu/Library/texmf/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm" 1246382020 1004 54797486969f23fa377b128694d548df ""
   "/Users/wchiu/Library/texmf/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm" 1246382020 988 bdf658c3bfc2d96d3c8b02cfc1c94c20 ""
   "/Users/wchiu/Library/texmf/fonts/tfm/public/amsfonts/cmextra/cmex9.tfm" 1246382020 996 a18840b13b499c08ac2de96a99eda4bc ""
@@ -245,10 +245,10 @@
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1775991724 3636774 2dff1e7806e63022778e6514705eadd3 ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
   "acl.sty" 1778137941.62068 11615 e2c027f483aa40e577ed34264c8b0655 ""
-  "acl_latex.aux" 1779118621.07505 25074 5cae66a13f4964c7137c1b48d0c4a069 "pdflatex"
-  "acl_latex.bbl" 1779118618.53538 5285 670a0d8b8849bb6fc710335ff1607b3a "bibtex acl_latex"
-  "acl_latex.out" 1779118621.07717 3213 f7384ded64ecc99723ed21ab347b496b "pdflatex"
-  "acl_latex.tex" 1779118309.84014 49933 651b5790501e5f70cdc7b68e9313c743 ""
+  "acl_latex.aux" 1779528280.36572 25964 170f86d80d9aaa4b7c56e93d2035ebfc "pdflatex"
+  "acl_latex.bbl" 1779528277.82479 5285 670a0d8b8849bb6fc710335ff1607b3a "bibtex acl_latex"
+  "acl_latex.out" 1779528280.36769 2828 b33d3f1a2eac6ee7310322d79e836b75 "pdflatex"
+  "acl_latex.tex" 1779528267.41075 51417 4b6fb4e89662adbf4e769db7e3d3e485 ""
   "intervention_dist.pdf" 1778216169.32582 17419 e6167a0484084c6f2e462e6901ddb251 ""
   (generated)
   "acl_latex.aux"

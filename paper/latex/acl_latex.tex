@@ -44,7 +44,7 @@ Many downstream uses of LLMs require structured output that obeys a formal gramm
 
 For DLMs the picture is different. Existing methods such as ETH/IG-CD \citep{mundler2025} and LAVE \citep{lave2025} enforce grammar by reducing the number of tokens unmasked per step to one. Violations are handled as rejection or verification events: ETH/IG-CD suppresses rejected candidates and resamples, while LAVE uses beam-search lookahead and can trigger an AR fallback after repeated rejection. This reduces the parallel-decoding budget in two ways. First, the per-step throughput drops by the maximum batch factor. Second, each violation triggers extra verification, and the AR fallback runs the diffusion model in a regime never seen during training. The headline numbers are reported only as total wall time, which obscures both the per-token constraint cost and the heavy tail caused by fallbacks.
 
-We make two contributions: (i) we argue that per-token constraint overhead is a useful axis for comparing grammar-constrained DLM methods, in line with how AR work like XGrammar \citep{xgrammar2024} and llguidance \citep{llguidance} is reported, and give per-operation timing breakdowns for grammar checks, mask construction, and their ratio to the forward pass; and (ii) we introduce Dgrammar, a grammar-constrained decoder for DLMs that keeps multi-token unmasking through incremental token-level prefix checking with selective remasking, asynchronous overlap of mask construction with the model forward pass, and grammar-guided AR completion for unfinished tails.
+We make two contributions: (i) we argue that per-token constraint overhead is a useful axis for comparing grammar-constrained DLM methods, in line with how AR work like XGrammar \citep{xgrammar2024} and llguidance \citep{llguidance} is reported, and give per-operation timing breakdowns for grammar checks, mask construction, and their ratio to the forward pass; and (ii) we introduce Dgrammar, whose core idea is \emph{single-frontier repair}: a grammar violation is fixed in place at the first offending token under the same forward-pass logits, rather than rejecting the whole parallel step, so multi-token unmasking is preserved. On top of this principle we add two semantics-preserving systems accelerations, asynchronous overlap of mask construction with the forward pass and a bounded grammar-guided AR tail, and isolate the principle's gains from the accelerations' in Table~\ref{tab:ablation}.
 
 On JSONSchemaBench medium\_test \citep{jsonschemabench2025} with LLaDA-8B-Instruct on a B200 GPU, Dgrammar improves schema-valid rate from 76.3\% (LAVE) to 84.5\% while reducing mean latency from 30.6\,s to 5.2\,s and p95 latency from 120\,s to 12.8\,s. The fraction of instances that hit the 120\,s timeout drops from 12.7\% to 0\%.
 
@@ -73,7 +73,7 @@ P_p^G(t) \;=\;
 \frac{\mathbf{1}[t\in G_p]P_p(t)}{\sum_{u\in G_p}P_p(u)}
 \quad\text{when }P_p(G_p)>0.
 \]
-Any grammar-constrained decoder must replace $P_p$ by some grammar-biased scoring rule. The distinction is whether this bias is applied to the same block-context logits or after changing the scoring objective.
+Any grammar-constrained decoder must replace $P_p$ by some grammar-biased scoring rule. The distinction is whether this bias is applied to the same block-context logits or after changing the scoring objective. This section is a qualitative map of \emph{where} each decoder injects its bias, not a quantitative theory of quality: the total-variation terms below name the relevant distances, but their consequences for validity and latency are settled empirically (\S\ref{sec:experiments}), and Proposition~\ref{prop:trunc} is a local correctness statement, not a claim about the constrained joint distribution.
 
 \begin{proposition}[Local MAP under truncation]
 \label{prop:trunc}
@@ -88,39 +88,9 @@ Each retry picks $\arg\max \ell[p]$ under the current suppression set. If the to
 
 Proposition~\ref{prop:trunc} characterizes one repair subroutine: \emph{which} token Dgrammar selects after a single-position violation. It is not a global guarantee about distribution preservation or downstream quality.
 
-\paragraph{Where the baselines apply their bias.} The other DLM-constrained decoders apply their grammar bias to a different object. ETH/IG-CD performs rejection filtering with a completion test. If
-\[
-C_p(\mathbf{x}) =
-\{t\in V:\operatorname{Comp}(\mathbf{x},p,t,\mathcal{G})=1\}
-\]
-is the set of tokens whose insertion leaves a nonempty intersection with the grammar, then its accepted token is the MAP under a different feasible set,
-\[
-\hat{t}_p^{\text{ETH}}
-= \arg\max_{t\in C_p(\mathbf{x})} P_p(t).
-\]
-This is still based on the same forward-pass logits, but the feasibility set depends on the whole partially filled block and on the sequential commitment order, not only on the current prefix frontier. The induced distributional change can be measured as $\mathrm{TV}(P_p^G,P_p^C)$ with $P_p^C$ defined by normalizing $P_p$ over $C_p(\mathbf{x})$; this term may be zero, and we do not claim a universal ordering.
+\paragraph{Where the baselines apply their bias.} The other DLM-constrained decoders apply their grammar bias to a different object. ETH/IG-CD performs rejection filtering with a completion test: its accepted token is $\hat{t}_p^{\text{ETH}}=\arg\max_{t\in C_p(\mathbf{x})} P_p(t)$, the MAP over the feasible set $C_p(\mathbf{x})=\{t\in V:\operatorname{Comp}(\mathbf{x},p,t,\mathcal{G})=1\}$ of tokens whose insertion leaves a nonempty grammar intersection. This still uses the same forward-pass logits, but the feasibility set depends on the whole partially filled block and the sequential commitment order, not only the current frontier. The induced change is $\mathrm{TV}(P_p^G,P_p^C)$ ($P_p^C$ normalizes $P_p$ over $C_p$); this may be zero, and we claim no universal ordering.
 
-LAVE changes the objective more directly. Its verifier scores a candidate through a beam-lookahead objective over future masked positions; writing the normalized lookahead score as
-\[
-R_p^{\text{LAVE}}(t)
-\propto \exp s_{\text{LAVE}}(t;\mathbf{x},\mathcal{G}),
-\]
-the selected token is
-\[
-\hat{t}_p^{\text{LAVE}}
-= \arg\max_t s_{\text{LAVE}}(t;\mathbf{x},\mathcal{G}),
-\]
-which need not coincide with either $\arg\max_t P_p(t)$ or $\arg\max_{t\in G_p}P_p(t)$. If LAVE falls back to per-position AR decoding, the scoring distribution is changed again to
-\[
-Q_p(t)=p_\theta(t\mid \mathbf{x}_{<p}),
-\]
-with the grammar-truncated version
-\[
-Q_p^G(t)=
-\frac{\mathbf{1}[t\in G_p]Q_p(t)}
-     {\sum_{u\in G_p}Q_p(u)}.
-\]
-The context-switch mismatch $\mathrm{TV}(P_p^G,Q_p^G)$, where $\mathrm{TV}(p,q)=\tfrac{1}{2}\sum_t |p(t)-q(t)|$ is the total variation distance, describes this source of distortion, but it does not imply token-level error: different distributions can share the same MAP token.
+LAVE changes the objective more directly: its verifier selects $\hat{t}_p^{\text{LAVE}}=\arg\max_t s_{\text{LAVE}}(t;\mathbf{x},\mathcal{G})$ through a beam-lookahead score over future masked positions, which need not coincide with $\arg\max_t P_p(t)$ or $\arg\max_{t\in G_p}P_p(t)$. If it falls back to per-position AR decoding, the conditioning changes to $Q_p(t)=p_\theta(t\mid \mathbf{x}_{<p})$ (grammar-truncated to $Q_p^G$), so the relevant distortion is the context-switch mismatch $\mathrm{TV}(P_p^G,Q_p^G)$, with $\mathrm{TV}(p,q)=\tfrac{1}{2}\sum_t |p(t)-q(t)|$. Neither term implies token-level error: different distributions can share the same MAP token.
 
 In summary, Dgrammar applies grammar bias inside the same block-context logits; ETH/IG-CD filters candidates through a completion set; LAVE adds a beam-lookahead objective; and AR fallback changes the conditioning context. Which design yields higher validity, cheaper interventions, and fewer failures is tested empirically in §\ref{sec:experiments}.
 
@@ -224,7 +194,7 @@ In summary, Dgrammar applies grammar bias inside the same block-context logits; 
     {\textbf{Cost:} 1 forward per block (async)\\Deterministic, no sampling variance};
 \end{tikzpicture}
 \end{minipage}
-\caption{One denoising step under schema \texttt{\{"count":int,\,"label":str\}}. \textbf{LAVE} \citep{lave2025} (left) samples $K$ random completions at each frontier token, accepting it only when $\geq\!1$ suffix is valid; stochastic and $K\!\times$ more expensive per token, hitting the 120\,s per-instance timeout on hard schemas. \textbf{Dgrammar} (right) runs \texttt{compute\_mask} on the incremental FSM state and unmasks an entire block under that mask in one forward pass, overlapped with the next mask computation; the result is deterministic. The figure is illustrative; LAVE's actual cost depends on its retry schedule and verifier policy (see \S\ref{sec:related}).}
+\caption{One denoising step under schema \texttt{\{"count":int,\,"label":str\}}. \textbf{LAVE} \citep{lave2025} (left) samples $K$ random completions at each frontier token, accepting it only when $\geq\!1$ suffix is valid; stochastic and $K\!\times$ more expensive per token, hitting the 120\,s per-instance timeout on hard schemas. \textbf{Dgrammar} (right) runs \texttt{compute\_mask} on the incremental FSM state and unmasks an entire block under that mask in one forward pass, overlapped with the next mask computation; the result is deterministic. The figure is illustrative and depicts LAVE's enum/format failure regime (App.~\ref{app:case}), where a random completion rarely hits a required token; on easier fields LAVE often commits in one or a few draws. Its actual cost depends on the retry schedule and verifier policy (\S\ref{sec:related}).}
 \label{fig:denoise-compare}
 \end{figure*}
 
@@ -547,10 +517,11 @@ We examine instance \texttt{o83272}, a cluster resource allocation schema where 
 
 \paragraph{Dgrammar (valid, 0 resamples, 3.39\,s).} Frontier masking restricts the vocabulary at each position to the set of tokens permitted by the matcher. For \texttt{resource}, only the enum-valid tokens are unmasked; for integer and date fields, only digits and the appropriate format tokens are exposed. Because the matcher guides every token choice, no violation occurs and the selective-remasking path is never triggered. The output is complete and schema-valid:
 
-{\footnotesize\begin{verbatim}
-{"resource": "CPU", "nodes": 4, "processors": 16, "ppn": 4,
- "start_date": "2023-10-01", "end_date": "2023-10-31",
- "percent_allocated": 75, "comments": "..."}
+{\scriptsize\begin{verbatim}
+{"resource": "CPU", "nodes": 4, "processors": 16,
+ "ppn": 4, "start_date": "2023-10-01",
+ "end_date": "2023-10-31", "percent_allocated": 75,
+ "comments": "..."}
 \end{verbatim}}
 
 \paragraph{Summary.} This is the general failure mode of stochastic lookahead on enum and format-constrained fields: the probability of a random completion matching a specific technical string is effectively zero, so LAVE never commits, whereas frontier masking sidesteps this entirely (the aggregate timeout-recovery numbers are in \S\ref{sec:experiments}).
