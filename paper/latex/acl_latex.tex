@@ -329,7 +329,7 @@ Second, if the diffusion loop exits before the matcher reaches an accepting stat
 
 \paragraph{Setup.} We evaluate on JSONSchemaBench (JSB) medium\_test \citep{jsonschemabench2025}; after matcher compilation skips, 511 instances are common to all methods. All runs use an NVIDIA B200, $T{=}128$ steps, generation length 256, block length 32, temperature 0.2, and \texttt{seed=0}. We compare Dgrammar with \textsc{Vanilla} unconstrained generation and LAVE \citep{lave2025} on LLaDA-8B-Instruct \citep{llada2025} and Dream-v0-Instruct-7B (``Dream-7B'') \citep{dream2025}. Dgrammar uses one per-backbone setting for \texttt{max\_resamples} (500 for LLaDA, 2000 for Dream) and per-position AR autocomplete; LAVE uses its published default \texttt{max\_retry\_num\_total}$=$1000.
 
-\paragraph{Metric.} We report \emph{schema@1}, the success of \texttt{jsonschema.validate} on the parsed output. This is stricter than the runner-internal grammar flag, which only checks the matcher's accepting state and can be inflated by truncated outputs.
+\paragraph{Metric.} We report \emph{schema@1}, the success of \texttt{jsonschema.validate} on the parsed output, applied identically to every method (Vanilla, LAVE, IG-CD, Dgrammar) and matching JSONSchemaBench \citep{jsonschemabench2025}. This is stricter than the runner-internal grammar flag, which only checks the matcher's accepting state and can be inflated by truncated outputs (App.~\ref{app:eos-validity}).
 
 \paragraph{Main results.} Table~\ref{tab:main} compares the systems. On LLaDA, \textsc{Vanilla} reaches only 51.3\% schema@1, while LAVE improves validity to 76.3\% at $7.8\times$ higher mean latency and with 65/511 timeouts. Dgrammar raises schema@1 to 84.5\%, runs $5.8\times$ faster than LAVE on mean latency and $9.4\times$ faster on p95, and has zero timeouts. Its mean latency is only $1.3\times$ above \textsc{Vanilla}, indicating that grammar enforcement adds little cost relative to diffusion forward passes. ETH/IG-CD~\citep{mundler2025} is not instance-matched: its CFG pipeline rejects $22$--$35\%$ of each split (Table~\ref{tab:main}, $\dagger$), and even on the schemas it compiles it trails Dgrammar at every difficulty ($79.1$ vs.\ $94.1$, $67.4$ vs.\ $84.5$, $38.8$ vs.\ $54.3$ schema@1) with $50/245$ timeouts on hard; we discuss it and DINGO in Limitations.
 
@@ -390,9 +390,28 @@ Dgrammar (full)        & 81.0\%          & 6.35          & 14.02 \\
 \label{fig:failure-breakdown}
 \end{figure}
 
-The paired outcomes in Figure~\ref{fig:failure-breakdown} show where the validity gains and remaining failures come from. Among the 511 common JSB medium\_test instances, Dgrammar and LAVE agree on 405 cases (358 both pass, 47 both fail). Dgrammar wins 74 cases that LAVE misses, while LAVE wins 32 cases that Dgrammar misses. Thus the improvement is not because one method dominates every schema, but because Dgrammar's wins are concentrated in LAVE's expensive failure mode: schemas where stochastic lookahead repeatedly rejects constrained continuations and often reaches the 120\,s timeout. On the 65 LAVE timeout instances, Dgrammar never times out.
+The paired outcomes in Figure~\ref{fig:failure-breakdown} show where the validity gains and remaining failures come from. Among the 511 common JSB medium\_test instances, Dgrammar and LAVE agree on 405 cases (358 both pass, 47 both fail). Dgrammar wins 74 cases that LAVE misses, while LAVE wins 32 cases that Dgrammar misses. Thus the improvement is not because one method dominates every schema, but because Dgrammar's wins are concentrated in LAVE's expensive failure mode: schemas where stochastic lookahead repeatedly rejects constrained continuations and often reaches the 120\,s timeout. On the 65 LAVE timeout instances, Dgrammar never times out and 46 become schema-valid, at a median of $5.2$\,s, a $23\times$ speedup over the LAVE timeout.
 
-The remaining 32 LAVE-only successes expose the main boundary of our method (\S\ref{app:dream-failures} gives the same decomposition for Dream). On these instances, LAVE's mean runtime is $21.8$\,s (max $87.3$\,s, well below the timeout), so they are genuine constraint-quality losses rather than easy cases LAVE happened to find first. Re-validating Dgrammar's failed outputs shows all of them fail at JSON parsing rather than schema validation: the median failed output is $578$ characters long, exceeding the $256$-token budget, so the dominant residual failure mode is tail closure on long-output schemas (App.~\ref{app:dream-failures}) rather than field selection. Lowering \texttt{max\_resamples} barely moves validity under the AR autocomplete fallback ($84.5$\%$\!\to\!84.1$\% at budget $100$, $\!\to\!83.6$\% at budget $50$); the cost shifts to latency instead, since more instances run out of resample budget and trigger the per-token AR completion (mean $5.24\!\to\!9.55\!\to\!11.55$\,s). Conversely, increasing the budget can recover validity on harder backbones, as in Dream medium\_test, but at a measurable latency cost. Dgrammar should therefore be read as a better validity--latency Pareto point, not as a universal validity winner over lookahead verification on every split.
+The remaining 32 LAVE-only successes expose the main boundary of our method (Table~\ref{tab:dream-fail} gives the same decomposition for Dream). On these instances, LAVE's mean runtime is $21.8$\,s (max $87.3$\,s, well below the timeout), so they are genuine constraint-quality losses rather than easy cases LAVE happened to find first. Re-validating Dgrammar's failed outputs shows all of them fail at JSON parsing rather than schema validation: the median failed output is $578$ characters long, exceeding the $256$-token budget, so the dominant residual failure mode is tail closure on long-output schemas (Table~\ref{tab:dream-fail}) rather than field selection. Lowering \texttt{max\_resamples} barely moves validity under the AR autocomplete fallback ($84.5$\%$\!\to\!84.1$\% at budget $100$, $\!\to\!83.6$\% at budget $50$); the cost shifts to latency instead, since more instances run out of resample budget and trigger the per-token AR completion (mean $5.24\!\to\!9.55\!\to\!11.55$\,s). Conversely, increasing the budget can recover validity on harder backbones, as in Dream medium\_test, but at a measurable latency cost. Dgrammar should therefore be read as a better validity--latency Pareto point, not as a universal validity winner over lookahead verification on every split.
+
+\begin{table}[!t]
+\small
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllrrr}
+\toprule
+\textbf{Method} & \textbf{Split} & \textbf{Fails} & \textbf{Empty} & \textbf{Parse} & \textbf{Schema} \\
+\midrule
+LAVE   & medium & 110 & 33 & 77 & 0 \\
+\textsc{Dgr.} & medium & 90  & 0  & 90 & 0 \\
+\cmidrule(lr){1-6}
+LAVE   & hard   & 113 & 40 & 73 & 0 \\
+\textsc{Dgr.} & hard   & 120 & 0  & 120 & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Dream-7B failure decomposition on JSB medium ($n{=}506$) and hard ($n{=}258$). Both decoders have zero schema errors; all failures occur before validation. Dgrammar eliminates empty timeout outputs, but its remaining failures are long parse errors (mean $577$/$761$ chars), beyond the $256$-token budget. The Dream hard regime thus mostly tests generation length rather than constraint quality.}
+\label{tab:dream-fail}
+\end{table}
 
 \paragraph{Case study.} Instance \texttt{o83272} is representative of the timeout wins (App.~\ref{app:case}). Its schema contains enum and format-constrained fields such as \texttt{resource}, integer counts, and date strings. LAVE must verify a frontier token by drawing random completions; for an enum field this requires a free-form completion to hit a specific token such as \texttt{"CPU"}, so every lookahead batch fails and the instance reaches the 120\,s timeout. Dgrammar instead masks the frontier vocabulary to enum-valid tokens, completes the instance in 3.39\,s with zero resamples, and produces schema-valid output.
 
@@ -541,30 +560,6 @@ We examine instance \texttt{o83272}, a cluster resource allocation schema where 
 \end{center}
 
 \paragraph{Summary.} This is the general failure mode of stochastic lookahead on enum and format-constrained fields: the probability of a random completion matching a specific technical string is effectively zero, so LAVE never commits. Frontier masking sidesteps this entirely. Among the 65 instances where LAVE times out on JSB medium\_test, 46 succeed under Dgrammar with similar mechanics; the median Dgrammar time on these 46 instances is 5.2\,s, a $23\times$ speedup over the LAVE timeout.
-
-\section{Dream Failure Decomposition}
-\label{app:dream-failures}
-
-To check why Dgrammar's margin over LAVE is narrower on Dream-7B medium/hard than on LLaDA, we bucketed every invalid output on the matched JSB intersections ($n{=}506$/$258$) as \emph{empty}, \emph{parse\_error}, or \emph{schema\_error}. Empty outputs are timeout/give-up cases; parse errors are truncated or malformed JSON; schema errors are parsed JSON objects rejected by \texttt{jsonschema}. Table~\ref{tab:dream-fail} reports the counts.
-
-\begin{table}[h]
-\small
-\centering
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lllrrr}
-\toprule
-\textbf{Method} & \textbf{Split} & \textbf{Fails} & \textbf{Empty} & \textbf{Parse} & \textbf{Schema} \\
-\midrule
-LAVE   & medium & 110 & 33 & 77 & 0 \\
-\textsc{Dgr.} & medium & 90  & 0  & 90 & 0 \\
-\cmidrule(lr){1-6}
-LAVE   & hard   & 113 & 40 & 73 & 0 \\
-\textsc{Dgr.} & hard   & 120 & 0  & 120 & 0 \\
-\bottomrule
-\end{tabular}
-\caption{Dream-7B failure decomposition on JSB medium ($n{=}506$) and hard ($n{=}258$). Both decoders have zero schema errors; all failures occur before validation. Dgrammar eliminates empty timeout outputs, but its remaining failures are long parse errors (mean $577$/$761$ chars), beyond the $256$-token budget. Thus the Dream hard regime mostly tests generation length rather than constraint quality.}
-\label{tab:dream-fail}
-\end{table}
 
 \section{EOS-Validity vs.\ Schema-Validity}
 \label{app:format}
