@@ -572,10 +572,10 @@ For example, on a schema requiring \texttt{target:\,\{type:\,string,\,format:\,"
 \section{Engineering Details}
 \label{app:engineering}
 
-\textbf{AIMD $K_{\max}$ schedule.} Each block starts at $K{=}1$. After every successful unmask we set $K\!\gets\!\min(2K, K_{\max})$ (multiplicative increase); on a grammar violation we drop to $K{=}1$ (additive collapse) and repair the frontier via selective remasking. With $K_{\max}{=}8$, $T{=}128$, and block length $32$, this converges to $K{=}2$--$3$ on average ($\bar K\!\approx\!1.96$ in our runs).
+\textbf{AIMD $K_{\max}$ schedule.} With $K_{\max}{=}8$, $T{=}128$, and block length $32$, the AIMD rule of \S\ref{sec:method} converges to $K{=}2$--$3$ on average ($\bar K\!\approx\!1.96$ in our runs).
 
-\textbf{Async mask overlap.} \texttt{compute\_mask} runs on a CPU worker thread and is launched immediately after the previous step's logits are committed. The next forward pass starts on the GPU without waiting; when its logits arrive, the worker's mask is already done, so observed mask wait drops from $13.2$\,ms (compute-bound) to $0.05$\,ms (sync-bound).
+\textbf{Async mask overlap.} \texttt{compute\_mask} runs on a CPU worker launched right after the previous step's logits commit, so the next GPU forward starts without waiting; observed mask wait then drops from $13.2$\,ms (compute-bound) to $0.05$\,ms (sync-bound).
 
-\textbf{Per-backbone adapter.} The runner abstracts model-specific bits behind three hooks: (i) \texttt{forward\_fn}, which on Dream applies a one-position causal shift to align logits with the masking convention; (ii) \texttt{(mask\_id, eos\_id)} token IDs; (iii) the tokenizer. No other code paths differ across LLaDA-8B and Dream-7B.
+\textbf{Per-backbone adapter.} Model-specific bits sit behind three hooks: \texttt{forward\_fn} (on Dream, a one-position causal shift aligning logits with the masking convention), the \texttt{(mask\_id, eos\_id)} pair, and the tokenizer; no other code paths differ across LLaDA-8B and Dream-7B.
 
 \end{document}
