@@ -239,36 +239,39 @@ In summary, Dgrammar applies grammar bias inside the same block-context logits; 
 \multicolumn{10}{c}{\textit{LLaDA-8B-Instruct}} \\
 \midrule
 easy   & Vanilla       & 558 & 64.2          & 2.58          & 2.48          & 3.23           & 3.38           & 4.02            & 0 \\
-       & LAVE          & 558 & 82.3          & 24.95         & 2.74          & 120.00         & 120.00         & 120.00          & 83 \\
        & IG-CD$^\dagger$ & 449 & 79.1        & 2.58          & 2.31          & 3.97           & 5.12           & 9.60            & 0 \\
+       & LAVE          & 558 & 82.3          & 24.95         & 2.74          & 120.00         & 120.00         & 120.00          & 83 \\
        & \textsc{Dgr.} & 558 & \textbf{94.1} & \textbf{3.14} & \textbf{2.71}  & \textbf{4.48}  & \textbf{5.36}  & \textbf{11.17}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 medium & Vanilla       & 511 & 51.3          & 3.91          & 3.67          & 5.14           & 5.61           & 7.59            & 0 \\
-       & LAVE          & 511 & 76.3          & 30.56         & 12.32         & 120.00         & 120.00         & 120.00          & 65 \\
        & IG-CD$^\dagger$ & 383 & 67.4        & 9.65          & 3.91          & 17.97          & 44.55          & 106.89          & 4 \\
+       & LAVE          & 511 & 76.3          & 30.56         & 12.32         & 120.00         & 120.00         & 120.00          & 65 \\
        & \textsc{Dgr.} & 511 & \textbf{84.5} & \textbf{5.24} & \textbf{4.39}  & \textbf{8.56}  & \textbf{12.76} & \textbf{15.54}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 hard   & Vanilla       & 269 & 24.9          & 9.30          & 7.52          & 15.33          & 17.69          & 25.45           & 0 \\
-       & LAVE          & 269 & 53.2          & 45.01         & 22.42         & 120.00         & 120.00         & 120.00          & 56 \\
        & IG-CD$^\dagger$ & 245 & 38.8        & 39.97         & 14.82         & 120.00         & 120.00         & 120.19          & 50 \\
+       & LAVE          & 269 & 53.2          & 45.01         & 22.42         & 120.00         & 120.00         & 120.00          & 56 \\
        & \textsc{Dgr.} & 269 & \textbf{54.3} & \textbf{24.17}& \textbf{19.46} & \textbf{46.50} & \textbf{54.44} & \textbf{86.21}  & \textbf{0} \\
 \midrule
 \multicolumn{10}{c}{\textit{Dream-7B}} \\
 \midrule
 easy   & Vanilla       & 552 & 65.0          & 1.20          & 0.98          & 2.26           & 2.45           & 2.62            & 0 \\
+       & IG-CD$^\dagger$ & 449 & 87.3        & 1.70          & 1.32          & 3.41           & 3.93           & 5.81            & 0 \\
        & LAVE          & 552 & 83.5          & 31.18         & 10.28         & 120.00         & 120.00         & 120.00          & 65 \\
        & \textsc{Dgr.} & 552 & \textbf{94.0} & \textbf{5.29} & \textbf{3.27}  & \textbf{11.12} & \textbf{14.01} & \textbf{23.89}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 medium & Vanilla       & 506 & 41.5          & 2.71          & 2.79          & 3.81           & 4.17           & 5.16            & 0 \\
+       & IG-CD$^\dagger$ & 383 & 66.8        & 5.96          & 3.33          & 8.40           & 12.96          & 90.69           & 3 \\
        & LAVE          & 506 & 78.3          & 34.20         & 15.37         & 120.00         & 120.00         & 120.00          & 58 \\
        & \textsc{Dgr.} & 506 & \textbf{82.2} & \textbf{9.11} & \textbf{6.21}  & \textbf{17.55} & \textbf{21.18} & \textbf{44.20}  & \textbf{0} \\
 \cmidrule(lr){1-10}
 hard   & Vanilla       & 258 & 12.4          & 5.99          & 5.29          & 9.22           & 10.94          & 14.12           & 0 \\
+       & IG-CD$^\dagger$ & 245 & 37.6        & 33.71         & 8.90          & 123.15         & 131.02         & 150.40          & 35 \\
        & LAVE          & 258 & 56.2          & 41.01         & 18.89         & 120.00         & 120.00         & 120.00          & 43 \\
        & \textsc{Dgr.} & 258 & \textbf{56.6} & \textbf{18.23}& \textbf{17.73} & \textbf{37.16} & \textbf{47.38} & \textbf{51.17}  & \textbf{0} \\
 \bottomrule
 \end{tabular}
-\caption{JSB difficulty spectrum, B200, $T{=}128$. \textsc{Dgr.} denotes Dgrammar. Latencies in seconds; Timeout counts $\geq\!120$\,s instances. $n$ is matched-instance count after llguidance skips. $^\dagger$IG-CD \citep{mundler2025} runs on LLaDA only (no Dream backend); its CFG pipeline compiles just a subset of each split ($449/577$ easy, $383/586$ medium, $245/368$ hard, i.e.\ $22$--$35\%$ rejected), so its rows are over that compilable subset and schema@1 is not instance-matched to the other methods. Hyperparameters in App.~\ref{app:hyperparams}.}
+\caption{JSB difficulty spectrum, B200, $T{=}128$. \textsc{Dgr.} denotes Dgrammar. Latencies in seconds; Timeout counts $\geq\!120$\,s instances. $n$ is matched-instance count after llguidance skips. $^\dagger$IG-CD \citep{mundler2025} compiles only a subset of each split ($449/577$ easy, $383/586$ medium, $245/368$ hard, i.e.\ $22$--$35\%$ rejected, identical across backbones); its rows are over that compilable subset, so schema@1 is not instance-matched to the other methods. On Dream its soft (\texttt{stopit}) timeout cannot interrupt a running kernel, so a few hard instances overshoot the $120$\,s budget. Hyperparameters in App.~\ref{app:hyperparams}.}
 \label{tab:main}
 \end{table*}
 
@@ -494,7 +497,7 @@ We argued that per-token constraint overhead is a useful axis for comparing gram
 
 \section*{Limitations}
 
-\paragraph{Coverage and grammar support.} We evaluate on two DLMs and three benchmark families. Table~\ref{tab:cross} shows transfer from JSON-Schema to SMILES via a CFG-mode checker, but we have not yet tested larger code grammars such as C++ or Python, where grammar size may dominate latency. Dgrammar also inherits llguidance's schema coverage: 75 recursive \texttt{\$ref+oneOf} JSB schemas cannot be compiled and are skipped by all methods. We include ETH/IG-CD \citep{mundler2025} in Table~\ref{tab:main} but it is not instance-matched: its regex backend rejects $22$--$35\%$ of each split (e.g.\ \texttt{\textbackslash/} URI escapes and null-bounded length quantifiers), and even on the schemas it does compile it trails Dgrammar at every difficulty while hitting $50/245$ timeouts on hard. Its implementation also targets LLaDA only, so we report no Dream numbers. We omit DINGO \citep{dingo2025} because no runnable implementation was released at submission time. Finally, all runs use a matched \texttt{seed=0}; multi-seed sweeps, LAVE hyperparameter sweeps, and grammar-size scaling are left for future work.
+\paragraph{Coverage and grammar support.} We evaluate on two DLMs and three benchmark families. Table~\ref{tab:cross} shows transfer from JSON-Schema to SMILES via a CFG-mode checker, but we have not yet tested larger code grammars such as C++ or Python, where grammar size may dominate latency. Dgrammar also inherits llguidance's schema coverage: 75 recursive \texttt{\$ref+oneOf} JSB schemas cannot be compiled and are skipped by all methods. We include ETH/IG-CD \citep{mundler2025} in Table~\ref{tab:main} but it is not instance-matched: its regex backend rejects $22$--$35\%$ of each split (e.g.\ \texttt{\textbackslash/} URI escapes and null-bounded length quantifiers), and even on the schemas it does compile it trails Dgrammar at every difficulty on both backbones while hitting $50/245$ (LLaDA) and $35/245$ (Dream) timeouts on hard. We omit DINGO \citep{dingo2025} because no runnable implementation was released at submission time. Finally, all runs use a matched \texttt{seed=0}; multi-seed sweeps, LAVE hyperparameter sweeps, and grammar-size scaling are left for future work.
 
 \paragraph{Algorithm and semantic ceiling.} The autocomplete fallback is the main correctness frontier; better fallbacks such as short beam search or learned completion heads may improve tail closure. Grammar constraints guarantee \emph{structural} validity, not semantic quality: valid outputs can still be empty arrays, empty objects, short strings, or otherwise uninformative, contributing to the gap between schema@1 and functional@1 (Table~\ref{tab:cross}). We also do not claim that Dgrammar samples from the constrained joint distribution; frontier-only masking is a limited bias, not a zero-bias procedure. In deployment, Dgrammar should be treated as a structural enforcement layer, with downstream semantic and safety checks applied as usual.
 
@@ -544,22 +547,13 @@ We examine instance \texttt{o83272}, a cluster resource allocation schema where 
 
 \paragraph{Dgrammar (valid, 0 resamples, 3.39\,s).} Frontier masking restricts the vocabulary at each position to the set of tokens permitted by the matcher. For \texttt{resource}, only the enum-valid tokens are unmasked; for integer and date fields, only digits and the appropriate format tokens are exposed. Because the matcher guides every token choice, no violation occurs and the selective-remasking path is never triggered. The output is complete and schema-valid:
 
-\begin{center}\footnotesize
-\begin{tabular}{l}
-\verb|{|\\
-\verb|  "resource": "CPU",|\\
-\verb|  "nodes": 4,|\\
-\verb|  "processors": 16,|\\
-\verb|  "ppn": 4,|\\
-\verb|  "start_date": "2023-10-01",|\\
-\verb|  "end_date": "2023-10-31",|\\
-\verb|  "percent_allocated": 75,|\\
-\verb|  "comments": "..."|\\
-\verb|}|\\
-\end{tabular}
-\end{center}
+{\footnotesize\begin{verbatim}
+{"resource": "CPU", "nodes": 4, "processors": 16, "ppn": 4,
+ "start_date": "2023-10-01", "end_date": "2023-10-31",
+ "percent_allocated": 75, "comments": "..."}
+\end{verbatim}}
 
-\paragraph{Summary.} This is the general failure mode of stochastic lookahead on enum and format-constrained fields: the probability of a random completion matching a specific technical string is effectively zero, so LAVE never commits. Frontier masking sidesteps this entirely. Among the 65 instances where LAVE times out on JSB medium\_test, 46 succeed under Dgrammar with similar mechanics; the median Dgrammar time on these 46 instances is 5.2\,s, a $23\times$ speedup over the LAVE timeout.
+\paragraph{Summary.} This is the general failure mode of stochastic lookahead on enum and format-constrained fields: the probability of a random completion matching a specific technical string is effectively zero, so LAVE never commits, whereas frontier masking sidesteps this entirely (the aggregate timeout-recovery numbers are in \S\ref{sec:experiments}).
 
 \section{EOS-Validity vs.\ Schema-Validity}
 \label{app:format}
