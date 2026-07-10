@@ -47,7 +47,7 @@ _image = (
 )
 
 RESULTS_VOL = modal.Volume.from_name("dgrammar-results", create_if_missing=True)
-_COMMON_FN_KW = dict(timeout=7200, volumes={"/results": RESULTS_VOL})
+_COMMON_FN_KW = dict(timeout=21600, volumes={"/results": RESULTS_VOL})
 
 
 def _chunk_fname(run_id: str, tag: str, dataset: str, seed: int, steps: int, offset: int) -> str:
@@ -91,7 +91,7 @@ def run_dgrammar(seed: int, limit: int, offset: int, steps: int,
     if os.path.exists(out_file):
         os.remove(out_file)
 
-    result = subprocess.run(
+    proc = subprocess.Popen(
         [
             "python", "/root/run_dgrammar.py",
             str(seed), str(limit), dataset, str(steps), str(offset),
@@ -99,29 +99,46 @@ def run_dgrammar(seed: int, limit: int, offset: int, steps: int,
             str(max_batch), str(async_mask), str(ac_enabled),
             model_name, ac_mode,
         ],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
         cwd="/root",
         env={
             "PATH": "/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
             "HOME": "/root",
             "PYTHONPATH": "/root:/root/constrained-diffusion",
+            # child buffers stdout off a tty, hiding progress from `modal app logs`
+            "PYTHONUNBUFFERED": "1",
         },
     )
-    print(result.stdout[-5000:] if result.stdout else "")
-    if result.stderr:
-        print("STDERR:", result.stderr[-2000:])
-    if result.returncode != 0:
-        raise RuntimeError(f"run_dgrammar.py failed with code {result.returncode}")
+    def checkpoint():
+        # the runner appends one line per instance, so a mid-run copy keeps
+        # partial results if the container is killed before it finishes
+        if os.path.exists(local_file):
+            shutil.copy2(local_file, out_file)
+            RESULTS_VOL.commit()
 
-    shutil.copy2(local_file, out_file)
-    return result.stdout[-5000:] if result.stdout else ""
+    lines = []
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        lines.append(line)
+        if len(lines) % 25 == 0:
+            checkpoint()
+    returncode = proc.wait()
+    stdout = "".join(lines)
+    checkpoint()
+    if returncode != 0:
+        raise RuntimeError(f"run_dgrammar.py failed with code {returncode}")
+
+    return stdout[-5000:]
 
 
 @app.local_entrypoint()
 def main(
     seed: int = 0,
     total: int = 148,
+    start: int = 0,
     steps: int = 128,
     chunks: int = 2,
     dataset: str = "jsb_medium_test",
@@ -144,8 +161,8 @@ def main(
 
     handles = []
     for i in range(chunks):
-        offset = i * chunk_size
-        limit = min(chunk_size, total - offset)
+        limit = min(chunk_size, total - i * chunk_size)
+        offset = start + i * chunk_size
         if limit <= 0:
             break
         print(f"  Chunk {i}: offset={offset}, limit={limit}")
